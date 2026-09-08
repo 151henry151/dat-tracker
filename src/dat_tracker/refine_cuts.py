@@ -78,6 +78,28 @@ def snap_cuts_forward_to_speech(
     return mono
 
 
+def merge_near_duplicate_cuts(
+    cuts_sec: list[float],
+    *,
+    min_separation_sec: float = 20.0,
+) -> list[float]:
+    """Collapse cut clusters closer than min_separation_sec, keeping the later time.
+
+    Preferring the later cut matches etree “start of next track” packaging when
+    Gemini emits both song-end and banter-start a few seconds apart.
+    """
+    ordered = sorted(float(c) for c in cuts_sec)
+    if not ordered:
+        return []
+    out = [ordered[0]]
+    for cut in ordered[1:]:
+        if cut - out[-1] < min_separation_sec:
+            out[-1] = cut
+        else:
+            out.append(cut)
+    return out
+
+
 def refine_listen_prompt(
     *,
     show_id: str,

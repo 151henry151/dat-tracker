@@ -155,8 +155,12 @@ Pipeline per raw full-show FLAC:
 Calibration loop:
 
 - Split Tier A and Tier B into **train/few-shot** vs **held-out** (never tune thresholds only on the show you are scoring).
-- Metrics: boundary F1 within ±N ms, track-count match, title similarity, set/structure agreement, show.txt field completeness.
-- Gate: held-out Tier A strong **and** held-out Tier B acceptable before batching the rest of Live Bluegrass.
+- Metrics: boundary F1 within ±N seconds, track-count match, title similarity, set/structure agreement, show.txt field completeness.
+- **Numeric shipping gate (locked):** before batching Live Bluegrass `todo` shows:
+  - **Tier B held-out** (synthetic re-split): mean boundary F1 ≥ **0.85** at ±15 s, and no held-out show below **0.70**.
+  - **Tier A held-out** (real raw ↔ Jon package): mean boundary F1 ≥ **0.80** at ±15 s on at least three shows (include at least one multi-artist night once alignment works).
+  - Track-count: \|hypothesis − reference\| ≤ 1 on at least 80% of those held-out shows.
+  - Titles may lag boundaries for v1; do not block the boundary gate on title similarity, but flag weak titles in `needs_review` notes.
 - Only then batch-process remaining shows; auto-accept packages that pass the same confidence/checklist gates.
 
 ### Phase 2a — External calibration corpus (do early, in parallel)

@@ -341,11 +341,13 @@ def speech_anchor_cuts_with_probes(
     probe_step_sec: float = 90.0,
     sparse_mid_anchor_threshold: int = 3,
     sparse_probe_step_sec: float = 60.0,
+    energy_cuts: list[float] | None = None,
 ) -> tuple[list[float], list[float]]:
     """Speech-island starts as anchors; gap probes for long music spans.
 
     Also folds in onsets of overlong Whisper spans (common song-length
     hallucinations). When mid-show anchors are sparse, tighten probe spacing.
+    Optional energy peaks fill long gaps that lack speech.
 
     Returns (anchor_cuts including endpoints, probe_centers only).
     """
@@ -382,4 +384,37 @@ def speech_anchor_cuts_with_probes(
         for c in with_probes
         if not any(abs(c - a) <= 0.05 for a in anchors)
     ]
+    if energy_cuts:
+        probes = merge_energy_into_probes(
+            anchors=anchors,
+            existing_probes=probes,
+            energy_cuts=energy_cuts,
+            min_gap_sec=max_gap_sec,
+        )
     return anchors, probes
+
+
+def merge_energy_into_probes(
+    *,
+    anchors: list[float],
+    existing_probes: list[float],
+    energy_cuts: list[float],
+    min_gap_sec: float = 240.0,
+    edge_pad_sec: float = 20.0,
+) -> list[float]:
+    """Add energy novelty peaks inside long anchor gaps as extra listen probes."""
+    ordered_anchors = sorted(float(a) for a in anchors)
+    probes = list(existing_probes)
+    for left, right in zip(ordered_anchors, ordered_anchors[1:], strict=False):
+        if right - left <= min_gap_sec:
+            continue
+        for peak in energy_cuts:
+            p = float(peak)
+            if p <= left + edge_pad_sec or p >= right - edge_pad_sec:
+                continue
+            if any(abs(p - a) <= 5.0 for a in ordered_anchors):
+                continue
+            if any(abs(p - q) <= 5.0 for q in probes):
+                continue
+            probes.append(p)
+    return sorted(probes)

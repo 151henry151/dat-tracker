@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dat_tracker.boundaries import probe_duration_seconds, summarize_comparison
+from dat_tracker.energy import propose_cuts_from_audio
 from dat_tracker.export_tracks import export_tracks_from_plan
 from dat_tracker.gemini_tracker import (
     refine_tracking_plan_cuts,
@@ -14,7 +15,11 @@ from dat_tracker.gemini_tracker import (
     speech_anchor_cuts_with_probes,
 )
 from dat_tracker.package import package_show_from_plan
-from dat_tracker.refine_cuts import rebuild_tracks_from_cuts, snap_cuts_forward_to_speech
+from dat_tracker.refine_cuts import (
+    merge_near_duplicate_cuts,
+    rebuild_tracks_from_cuts,
+    snap_cuts_forward_to_speech,
+)
 from dat_tracker.speech import (
     filter_plausible_speech_segments,
     merge_speech_islands,
@@ -102,11 +107,13 @@ def run_track_show(
     )
     segs = parse_whisper_segments(payload)
     duration = probe_duration_seconds(source_audio)
+    energy_cuts = propose_cuts_from_audio(source_audio, min_separation_sec=60.0)
     anchors, probes = speech_anchor_cuts_with_probes(
         segs,
         duration_sec=duration,
         max_gap_sec=max_gap_sec,
         probe_step_sec=probe_step_sec,
+        energy_cuts=energy_cuts,
     )
 
     try:
@@ -153,6 +160,16 @@ def run_track_show(
             snapped,
             evidence_by_cut=evidence,
             note="Snapped mid cuts forward to last speech onset in look-ahead window.",
+        )
+    deduped = merge_near_duplicate_cuts(
+        list(plan.get("cuts_sec") or []),
+        min_separation_sec=20.0,
+    )
+    if deduped != list(plan.get("cuts_sec") or []):
+        plan = rebuild_tracks_from_cuts(
+            plan,
+            deduped,
+            note="Merged near-duplicate cuts (kept later time in each cluster).",
         )
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
 

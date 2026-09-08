@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retry Gemini generate_content on transient 503 capacity errors with exponential backoff.
 - Add optional Gemini refine pass and deterministic forward snap of cuts onto nearby speech onsets.
 - Use overlong Whisper segment onsets as boundary anchors and densify probes when mid-show speech is sparse.
+- Merge near-duplicate tracking cuts and add energy peaks as listen probes inside long speech-free gaps.
+- Lock numeric held-out calibration gates (Tier B mean F1 ≥ 0.85 @ ±15s; Tier A mean F1 ≥ 0.80) before Live Bluegrass batching.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.
 - Add catalog builders for IA search docs, Dropbox zip paths, merge/status marking, and JSON/CSV writers.
