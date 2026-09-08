@@ -58,6 +58,38 @@ def test_list_track_flacs_sorts_etree_names(tmp_path):
     ]
 
 
+def test_list_track_flacs_sorts_compact_tNN_without_underscore(tmp_path):
+    names = [
+        "del mccoury band2001-04-27t02Beauty.flac",
+        "del mccoury band2001-04-27t10Encore.flac",
+        "del mccoury band2001-04-27t01unknown.flac",
+    ]
+    for name in names:
+        (tmp_path / name).write_bytes(b"")
+    ordered = [p.name for p in list_track_flacs(tmp_path)]
+    assert ordered[0].endswith("t01unknown.flac")
+    assert ordered[1].endswith("t02Beauty.flac")
+    assert ordered[2].endswith("t10Encore.flac")
+
+
+def test_list_track_flacs_sorts_disc_track_dNtMM(tmp_path):
+    names = [
+        "ymsb2000-08-18d1t10.flac",
+        "ymsb2000-08-18d1t02.flac",
+        "ymsb2000-08-18d2t01.flac",
+        "ymsb2000-08-18d1t01.flac",
+    ]
+    for name in names:
+        (tmp_path / name).write_bytes(b"")
+    ordered = [p.name for p in list_track_flacs(tmp_path)]
+    assert ordered == [
+        "ymsb2000-08-18d1t01.flac",
+        "ymsb2000-08-18d1t02.flac",
+        "ymsb2000-08-18d1t10.flac",
+        "ymsb2000-08-18d2t01.flac",
+    ]
+
+
 def test_summarize_comparison_includes_track_count_delta():
     summary = summarize_comparison(
         reference_cuts=[0.0, 10.0, 20.0],

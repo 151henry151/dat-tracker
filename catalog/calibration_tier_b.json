@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0.0",
+  "tier": "B",
+  "notes": "External tracked DAT packages for held-out / few-shot calibration. Media under data/calibration/<id>/ (gitignored).",
+  "shows": [
+    {
+      "id": "del2001-04-27.flac16",
+      "artist": "Del McCoury Band",
+      "date": "2001-04-27",
+      "split": "holdout",
+      "why": "Small DAT AUD package with txt+ffp; different taper than Live Bluegrass"
+    },
+    {
+      "id": "sbb2001-04-27.flac16",
+      "artist": "Sam Bush",
+      "date": "2001-04-27",
+      "split": "train",
+      "why": "Same taper lineage family as del2001-04-27; Sam Bush DAT"
+    },
+    {
+      "id": "sbb2004-05-02.flac16",
+      "artist": "Sam Bush",
+      "date": "2004-05-02",
+      "split": "holdout",
+      "why": "Second Sam Bush DAT; held out from the 2001 sibling"
+    },
+    {
+      "id": "los1997-04-03.kpig",
+      "artist": "Leftover Salmon",
+      "date": "1997-04-03",
+      "split": "train",
+      "why": "Pre-FM DAT master; clean lineage; txt+ffp"
+    },
+    {
+      "id": "los1997-08-06.flac16",
+      "artist": "Leftover Salmon",
+      "date": "1997-08-06",
+      "split": "holdout",
+      "why": "LOS via cass generation; stil DAT-origin; stress slightly messier transfers"
+    },
+    {
+      "id": "ymsb2007-02-24.flac16",
+      "artist": "Yonder Mountain String Band",
+      "date": "2007-02-24",
+      "split": "train",
+      "why": "YMSB DAT AUD; txt+ffp"
+    },
+    {
+      "id": "ymsb2000-08-18.flac16",
+      "artist": "Yonder Mountain String Band",
+      "date": "2000-08-18",
+      "split": "holdout",
+      "why": "Earlier YMSB DAT; held out from 2007 sibling"
+    },
+    {
+      "id": "crnml2002-08-30.flac16",
+      "artist": "Cornmeal",
+      "date": "2002-08-30",
+      "split": "train",
+      "why": "SBD DAT > cd wav > flac; jamgrass adjacent"
+    },
+    {
+      "id": "jcb2004-04-16.sbd.kp.flac16",
+      "artist": "John Cowan",
+      "date": "2004-04-16",
+      "split": "holdout",
+      "why": "John Cowan SBD DAT outside Dave Ward set; in-artist but out-of-dump"
+    },
+    {
+      "id": "lke2006-11-10.early",
+      "artist": "Larry Keel",
+      "date": "2006-11-10",
+      "split": "train",
+      "why": "SBD DAT bluegrass; different artist for diversity"
+    }
+  ]
+}

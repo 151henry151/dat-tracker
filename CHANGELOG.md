@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Change Phase 2 from human-in-the-loop waveform review to LLM-powered automatic tracking with calibration-gated release and exceptional-only human spot-checks.
 - Parse Live Bluegrass dump filenames with leading `YYMMDD` / `YYYYMMDD` dates and known artist abbrevs into catalog rows; coalesce multipart raw FLACs.
 - Expand calibration strategy to multi-corpus tiers (Live Bluegrass pairs, external tracked DAT packages, broader RAG/training corpus) so evaluation does not overfit one dump.
+- Broaden track FLAC ordering to compact `…tNN…` and `dNtMM` etree filename styles used by external packages.
 
 ### Added
 
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Jon-style `show.txt` formatter.
 - Add `scripts/build_catalog.py` and Phase 1 ingest notes.
 - Add ground-truth boundary cut extraction and F1 comparison helpers plus `scripts/report_ground_truth_boundaries.py`.
+- Add Tier B external calibration manifest, download script, and synthetic re-split helpers.
 
 ## [0.1.0] — 2026-09-08
 

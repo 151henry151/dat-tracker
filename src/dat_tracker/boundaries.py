@@ -8,10 +8,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-TRACK_FLAC_RE = re.compile(
-    r".+_(?:s(?P<set>\d+)t(?P<st>\d+)|t(?P<t>\d+))\.flac$",
-    re.IGNORECASE,
+TRACK_SET_RE = re.compile(r"_[sS](?P<set>\d+)t(?P<st>\d+)", re.IGNORECASE)
+TRACK_DISC_RE = re.compile(r"d(?P<set>\d+)t(?P<st>\d+)", re.IGNORECASE)
+TRACK_AFTER_DATE_RE = re.compile(
+    r"(?:\d{4}-\d{2}-\d{2}|\d{6})t(?P<t>\d+)", re.IGNORECASE
 )
+TRACK_UNDERSCORE_RE = re.compile(r"_t(?P<t>\d+)", re.IGNORECASE)
 
 
 def cuts_from_durations(durations_sec: list[float]) -> list[float]:
@@ -25,12 +27,20 @@ def cuts_from_durations(durations_sec: list[float]) -> list[float]:
 
 
 def _track_sort_key(path: Path) -> tuple[int, int]:
-    match = TRACK_FLAC_RE.match(path.name)
-    if not match:
-        return (10_000, 10_000)
-    if match.group("t") is not None:
+    stem = path.stem
+    match = TRACK_SET_RE.search(stem)
+    if match:
+        return (int(match.group("set")), int(match.group("st")))
+    match = TRACK_DISC_RE.search(stem)
+    if match:
+        return (int(match.group("set")), int(match.group("st")))
+    match = TRACK_AFTER_DATE_RE.search(stem)
+    if match:
         return (1, int(match.group("t")))
-    return (int(match.group("set")), int(match.group("st")))
+    match = TRACK_UNDERSCORE_RE.search(stem)
+    if match:
+        return (1, int(match.group("t")))
+    return (10_000, 10_000)
 
 
 def list_track_flacs(directory: Path) -> list[Path]:

@@ -33,7 +33,16 @@ Example identifiers surfaced by size-capped search (quality not yet vetted—che
 - `ymsb2007-02-24.flac16` (~177 MB)
 - `jcb2004-04-16.sbd.kp.flac16` (~251 MB)
 
-Aim for a first Tier B batch of ~8–15 shows, mixed artists/venues, totaling well under ~10 GB.
+## First curated Tier B batch
+
+Manifest: `catalog/calibration_tier_b.json` (10 shows, ~1.3 GB FLAC, train/holdout split).
+
+```bash
+./scripts/download_calibration_tier_b.sh
+python scripts/build_synthetic_resplit.py
+```
+
+Synthetic continuous files and `known_cuts.json` land under `data/calibration/<id>/`.
 
 ## Synthetic re-split
 

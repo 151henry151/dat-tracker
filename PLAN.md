@@ -219,7 +219,7 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 - [x] Download full ~100GB Dropbox dump into `data/raw/` with resume
 - [x] Download all Dave Ward / Brian H IA items; mark catalog `already_uploaded` vs `todo`
 - [x] Build catalog from zip listing + IA (YYMMDD dump names); link calibration raw paths
-- [ ] Curate + download small Tier B external calibration set; synthetic re-split harness
+- [x] Curate + download small Tier B external calibration set; synthetic re-split harness
 - [ ] Implement signal extractors + auto-diff against Jon ground-truth FLACs (incl. multi-show raw alignment)
 - [ ] Implement LLM tracking loop (boundaries, labels, segues, titles) with multi-corpus few-shot/RAG
 - [ ] Calibrate until held-out Tier A **and** Tier B match is shippable without human cuts
