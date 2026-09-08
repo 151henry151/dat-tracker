@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `.env.example` documenting `GEMINI_API_KEY` and default Flash model.
 - Add mid-gap probe centers and ACCEPT/REJECT/SNAP listening prompt so Gemini can drop false proposals and scrub long spans.
 - Add lossless FLAC track export from a tracking-plan JSON.
+- Add show.txt and fingerprint.ffp.txt packaging from a tracking plan (FLAC STREAMINFO MD5, no metaflac).
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.
 - Add catalog builders for IA search docs, Dropbox zip paths, merge/status marking, and JSON/CSV writers.
