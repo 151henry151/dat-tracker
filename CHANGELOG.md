@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rewrite README as a public-facing description of track splitting, the product goal, and how dat-tracker approaches it.
 - Reframe the README problem statement around manual tracking labor; mention stem-splitter search confusion only as a brief aside.
 - Expand the README helpers survey (silence, onset/MSA, fingerprinting, cue-driven, fixed-interval, DAW) and document why sparse cloud audio listening is preferred over laptop audio-LLMs or premature IA fine-tunes.
+- Expand the README Usage section for Windows, macOS, and Linux (ffmpeg/ffprobe, venv, Gemini `.env`, `track_show`) and clarify the Development contributor flow.
 - Lock Phase 2 on an audio-native LLM-in-the-loop tracker (Gemini preferred); classical/ASR features are optional aids, not a text-only substitute for listening.
 - Prefer sparse Gemini listening on short clips around candidate cuts (Flash by default) to limit audio token cost.
 
