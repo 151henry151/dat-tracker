@@ -1,35 +1,76 @@
 # dat-tracker
 
-LLM-powered automatic tracking of untrimmed DAT→FLAC transfers into etree-style packages for the Internet Archive, calibrated so human waveform review is not required.
+**dat-tracker** turns long, untrimmed live recordings into etree-style show packages: named FLAC tracks, info text, fingerprints, and tags — with as little manual waveform editing as possible.
 
-First proving ground: the Live Bluegrass Dave W / Brian H dump. The same tooling is intended for other DAT dumps of any genre (see Phase 5 in PLAN.md).
+It targets a common archive problem: **track splitting** (also called song boundary detection or cue-sheet generation) on continuous live transfers, especially **DAT → FLAC** dumps that arrive as one file per tape or set with **no embedded track markers**.
 
-## Start here
+## The problem
 
-**Agents and humans:** follow **[PLAN.md](PLAN.md)**. That document is the source of truth for goals, conventions, phases, and the todo checklist.
+Searching for “AI stem splitters” will send you to Spleeter-style tools that separate vocals from instruments. That is a different job.
 
-## Quick links
+What you need for a live show is **where each track starts and ends**, then packaging to community standards (etree / Live Music Archive conventions): filenames, setlists, banter and tuning kept as their own tracks, segues marked, `.txt` + `.ffp`, Vorbis tags, upload metadata.
 
-- Dropbox (raw full-show FLACs, ~100 GB): see PLAN.md
-- Ground truth on Archive.org: Dave Ward Collection / Brian H Collection (already tracked by Jon King)
-- Reddit context: r/Bluegrass update thread linked in PLAN.md
+There is no polished consumer product for that the way there is for stems. What exists today is mostly heuristic:
+
+- **Silence detection** (`ffmpeg silencedetect`, Audacity “Label Sounds”, browser splitters) — works poorly on live SBDs. Applause and room tone are not silence; thresholds that work in the studio find nothing on a gig tape, and thresholds that catch applause also fire inside songs.
+- **Spectral / energy shifts** — closer to the right idea for live material (instrumentation vs crowd), and tools like [Audio File Splitter](https://github.com/luckymuck/Audio-File-Splitter) explore that — still usually ends in dragging markers on a waveform.
+- **Fingerprinting** (ACRCloud, AudD, etc.) — can stamp known covers with timestamps; useless for material that is not in the database.
+
+A realistic workflow with those tools on a two-hour set is: run detection, then spend a while fixing boundaries. Segues, quiet intros, and stage banter that runs into a count-in defeat a fully automatic silence pass.
+
+**dat-tracker** is built for that gap: automate the *tracking and packaging* pipeline, calibrate against already-excellent human-tracked shows, and treat remaining misses as rare exceptions — not as “open a waveform UI for every show.”
+
+## What it does
+
+1. **Ingest** continuous FLACs (and catalog them against known Archive.org items when you have them).
+2. **Propose boundaries** with an ensemble of signals — not silence alone: energy/novelty, silence gaps, speech/banter islands (ASR), and (planned) music vs applause classifiers.
+3. **Decide** track cuts, types (song / banter / tuning / intro / …), segues, and titles via an LLM that consumes that timeline plus show context and few-shot examples from calibration packages.
+4. **Export** lossless cuts into etree-style names, Jon/etree-style `show.txt`, fingerprint files, and tags.
+5. **Validate** against held-out, already-tracked packages so the tool does not overfit one dump or one taper’s quirks.
+6. **Reuse** the same flow on other DAT (or similar continuous) dumps via config — Live Bluegrass is the first proving ground, not the only intended use.
+
+## What “good” means here
+
+Matching careful human tracking conventions, for example:
+
+- Banter, tuning, and intros are **tracks**, not deleted dead air.
+- Segues marked with `>` in titles/setlists.
+- Filenames like `artistabbrevYYYY-MM-DD_t01.flac` or `_s1t01` / `_s2t01`.
+- Bundle: FLAC + info `.txt` + fingerprint (`.ffp` / `fingerprint.ffp.txt`) + tags.
+- Honest credit chains for transferer / tracker on Archive.org uploads.
+
+Fully automatic release is the goal; confidence gates flag hard shows instead of requiring a waveform review workflow for every file.
+
+## Status
+
+Early development (**0.1.0**). Ingest, cataloging, calibration corpora, and proposal/scoring tooling are in progress; the full LLM decision loop and packaging path are the active work. See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for detail.
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `data/raw/` | Dropbox dump |
-| `data/ground_truth/` | Existing IA uploads for calibration |
-| `data/work/` | Per-show working files |
-| `data/out/` | Finished packages ready to upload |
-| `catalog/` | Inventory of shows and status |
-| `src/` | Pipeline code |
+| `src/dat_tracker/` | Library code (catalog, proposals, calibration helpers, …) |
+| `scripts/` | Download, score, and build utilities |
+| `catalog/` | Show inventory and calibration manifests |
+| `data/` | Local media (gitignored): raw dumps, ground truth, work, output |
 | `docs/` | Extra notes |
+| `tests/` | Pytest suite |
 
-## Status
+## Development
 
-Phase 1 ingest largely done; Phase 2 underway. Calibration is **multi-corpus** (Jon Live Bluegrass + external tracked DAT packages + later broader training/RAG)—see PLAN.md and `docs/calibration-corpus.md`. Next: curate a small Tier B set and continue signal/LLM tracking work.
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+# optional ASR extras
+pip install -e ".[asr]"
+pytest
+```
 
-## Version
+System tools: `ffmpeg` (and typically `ffprobe`). Archive.org CLI extras come via the `internetarchive` dependency.
 
-Current version: **0.1.0** — see [CHANGELOG.md](CHANGELOG.md).
+Agents and maintainers working in this repo should follow **[PLAN.md](PLAN.md)** and **[AGENTS.md](AGENTS.md)**.
+
+## License
+
+MIT — see `pyproject.toml`.

@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parse Live Bluegrass dump filenames with leading `YYMMDD` / `YYYYMMDD` dates and known artist abbrevs into catalog rows; coalesce multipart raw FLACs.
 - Expand calibration strategy to multi-corpus tiers (Live Bluegrass pairs, external tracked DAT packages, broader RAG/training corpus) so evaluation does not overfit one dump.
 - Broaden track FLAC ordering to compact `…tNN…` and `dNtMM` etree filename styles used by external packages.
+- Rewrite README as a public-facing description of track splitting, the product goal, and how dat-tracker approaches it.
 
 ### Added
 
