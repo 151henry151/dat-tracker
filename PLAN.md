@@ -108,6 +108,28 @@ flowchart LR
 
 **Goal:** End-to-end automatic tracking that **matches high-quality etree-style packages** (boundaries, track count/types, titles, txt/ffp/tags) well enough to ship without human waveform review. Silence detection alone is insufficient; the LLM must reason over rich audio-derived evidence. Primary in-domain targets are Jon’s Live Bluegrass packages; **shipping gate also requires solid held-out scores on an external calibration slice**.
 
+### How we achieve this (modern stack)
+
+Automated live-show tracking is a **perception → decision → package** problem. The industry pieces already exist; we combine them against etree conventions and measure hard.
+
+1. **Perception (frame timeline, not one magic model)**  
+   - Classical: RMS/onset energy, silence gaps, spectral/chroma novelty (song→song under continuous applause).  
+   - Neural audio events: music vs speech vs applause (YAMNet / PANNs / similar — same idea as [XTRACK](https://github.com/FlorianColombo/xtrack)).  
+   - ASR + VAD (e.g. Whisper / faster-whisper): locate banter/tuning islands that must become their own tracks.  
+   - Optional: CLAP / chromaprint for title hints once regions exist.  
+   Output: a time-aligned feature timeline the rest of the system can query.
+
+2. **Decision (LLM as tracker, not as waveform UI)**  
+   The LLM consumes the timeline + folder/J-card context + **few-shot examples from Tier A/B** (and later Tier C RAG) and emits a structured plan: cut times, track types, segues, titles, confidence. Rules encoded in examples/prompts: keep banter; don’t delete tuning; mark `>`; etree filenames. Weak confidence → `needs_review`, not a human editor loop.
+
+3. **Learn from the archive (why Tier B/C exist)**  
+   Thousands of already-tracked DAT packages on IA are labeled cut lists in disguise. Synthetic re-split + show.txt corpora let us (a) eval without overfitting Live Bluegrass, (b) RAG style/setlist patterns, (c) later train a specialist boundary head or preference-tune the decision policy. Full fine-tunes are Phase 2b — not a blocker for a first shippable Live Bluegrass batch once held-out metrics pass.
+
+4. **Hard cases we design for**  
+   - Short gaps / long banter (bluegrass).  
+   - Multi-artist continuous files (e.g. Riverbend `020802_JCB_RR` ≈ JCB + PRTR).  
+   - Jon packages that are **not** bit-identical excerpts of our raw (alignment by content, not PCM equality).
+
 Pipeline per raw full-show FLAC:
 
 1. **Decode once** to a working WAV/PCM cache (or stream via ffmpeg) for analysis.

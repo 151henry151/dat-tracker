@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `scripts/build_catalog.py` and Phase 1 ingest notes.
 - Add ground-truth boundary cut extraction and F1 comparison helpers plus `scripts/report_ground_truth_boundaries.py`.
 - Add Tier B external calibration manifest, download script, and synthetic re-split helpers.
+- Document the perception → LLM decision → archive-learning stack for automatic tracking.
+- Add RMS energy / novelty boundary proposals and a Tier B scoring script.
 
 ## [0.1.0] — 2026-09-08
 
