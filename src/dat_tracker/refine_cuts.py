@@ -138,11 +138,12 @@ def thin_listen_centers(
     duration_sec: float,
     target_mid_cuts: int | None = None,
 ) -> tuple[list[float], list[float]]:
-    """Reduce dense speech anchors/probes before Gemini listens.
+    """Keep speech anchors; thin only gap probes on long shows.
 
-    Long bluegrass sets often have many banter islands; sending all of them as
-    candidates causes over-segmentation. Keep endpoints, thin mid anchors to
-    about one per ~4 minutes, and only keep probes that still sit in large gaps.
+    Dense banter often coexists with true song-boundary speech. Dropping mid
+    anchors to hit a 4-minute budget removed real cuts on long jam sets, so
+    anchors are preserved. Cap probes on long shows so Gemini is not flooded
+    with mid-song energy peaks.
     """
     if target_mid_cuts is None:
         target_mid_cuts = max(4, int(round(duration_sec / 240.0)))
@@ -154,26 +155,10 @@ def thin_listen_centers(
         ordered.append(float(duration_sec))
 
     mid = [a for a in ordered if 0.05 < a < duration_sec - 0.05]
-    # Only thin when clearly over-dense vs ~4-minute song spacing.
-    if len(mid) > int(target_mid_cuts * 1.5):
-        while len(mid) > target_mid_cuts:
-            extended = [0.0, *mid, float(duration_sec)]
-            best_drop = 0
-            best_gap = float("inf")
-            for j in range(len(extended) - 1):
-                gap = extended[j + 1] - extended[j]
-                if gap >= best_gap:
-                    continue
-                best_gap = gap
-                if j == 0:
-                    best_drop = 0
-                elif j + 1 == len(extended) - 1:
-                    best_drop = len(mid) - 1
-                else:
-                    best_drop = j - 1
-            mid.pop(best_drop)
-
     thinned_anchors = [0.0, *mid, float(duration_sec)]
+    if duration_sec < 2000.0:
+        return thinned_anchors, sorted({float(p) for p in probes})
+
     max_probes = max(2, target_mid_cuts)
     kept_probes: list[float] = []
     for left, right in zip(thinned_anchors, thinned_anchors[1:], strict=False):
