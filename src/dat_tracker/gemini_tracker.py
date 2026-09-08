@@ -60,7 +60,7 @@ def request_tracking_plan_from_clips(
 
     from google import genai
     from google.genai import types
-    from google.genai.errors import ServerError
+    from google.genai.errors import ClientError, ServerError
 
     root = project_root or Path.cwd()
     key = api_key or resolve_gemini_api_key(project_root=root)
@@ -143,12 +143,16 @@ def request_tracking_plan_from_clips(
                 ),
             )
             break
-        except ServerError as exc:
+        except (ServerError, ClientError) as exc:
             last_error = exc
-            # 503 capacity spikes are common; back off and retry.
+            # 503 capacity spikes and 429 rate limits are common; back off and retry.
             if attempt + 1 >= max_retries:
                 raise
-            time.sleep(2 ** attempt)
+            status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            if status == 429:
+                time.sleep(min(60.0, 15.0 * (attempt + 1)))
+            else:
+                time.sleep(2 ** attempt)
     if response is None:
         assert last_error is not None
         raise last_error
@@ -203,7 +207,7 @@ def _generate_content_with_retries(
     import time
 
     from google.genai import types
-    from google.genai.errors import ServerError
+    from google.genai.errors import ClientError, ServerError
 
     last_error: Exception | None = None
     for attempt in range(max_retries):
@@ -219,11 +223,15 @@ def _generate_content_with_retries(
                     ),
                 ),
             )
-        except ServerError as exc:
+        except (ServerError, ClientError) as exc:
             last_error = exc
             if attempt + 1 >= max_retries:
                 raise
-            time.sleep(2**attempt)
+            status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+            if status == 429:
+                time.sleep(min(60.0, 15.0 * (attempt + 1)))
+            else:
+                time.sleep(2**attempt)
     assert last_error is not None
     raise last_error
 
@@ -373,6 +381,14 @@ def speech_anchor_cuts_with_probes(
     if len(mid_anchors) < sparse_mid_anchor_threshold:
         step = min(step, sparse_probe_step_sec)
 
+    if energy_cuts:
+        anchors = merge_energy_into_anchors(
+            anchors=anchors,
+            energy_cuts=energy_cuts,
+            min_gap_sec=90.0,
+            near_anchor_sec=30.0,
+        )
+
     with_probes = add_gap_probe_centers(
         anchors,
         duration_sec=duration_sec,
@@ -392,6 +408,34 @@ def speech_anchor_cuts_with_probes(
             min_gap_sec=max_gap_sec,
         )
     return anchors, probes
+
+
+def merge_energy_into_anchors(
+    *,
+    anchors: list[float],
+    energy_cuts: list[float],
+    min_gap_sec: float = 90.0,
+    near_anchor_sec: float = 30.0,
+    edge_pad_sec: float = 20.0,
+) -> list[float]:
+    """Promote energy novelty peaks in medium speech gaps to listen anchors.
+
+    Speech-free song transitions often lack Whisper islands; energy peaks in
+    those gaps are stronger candidate cut centers than evenly spaced probes.
+    """
+    ordered = sorted(float(a) for a in anchors)
+    added: list[float] = []
+    for left, right in zip(ordered, ordered[1:], strict=False):
+        if right - left <= min_gap_sec:
+            continue
+        for peak in energy_cuts:
+            p = float(peak)
+            if p <= left + edge_pad_sec or p >= right - edge_pad_sec:
+                continue
+            if any(abs(p - a) <= near_anchor_sec for a in (*ordered, *added)):
+                continue
+            added.append(p)
+    return sorted({*ordered, *added})
 
 
 def merge_energy_into_probes(

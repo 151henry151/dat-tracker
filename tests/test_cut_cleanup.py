@@ -29,3 +29,19 @@ def test_merge_energy_into_probes_adds_peaks_in_long_gaps():
     assert any(abs(p - 684.0) < 0.01 for p in probes)
     # Do not re-add peaks that are basically anchors.
     assert not any(abs(p - 406.0) < 0.01 for p in probes)
+
+
+def test_merge_energy_into_anchors_promotes_peaks_in_medium_gaps():
+    from dat_tracker.gemini_tracker import merge_energy_into_anchors
+
+    anchors = [0.0, 500.0, 1000.0]
+    out = merge_energy_into_anchors(
+        anchors=anchors,
+        energy_cuts=[241.0, 502.0, 780.0],
+        min_gap_sec=90.0,
+        near_anchor_sec=30.0,
+    )
+    assert any(abs(a - 241.0) < 0.01 for a in out)
+    assert any(abs(a - 780.0) < 0.01 for a in out)
+    # Too close to existing speech anchor.
+    assert not any(abs(a - 502.0) < 0.01 for a in out)
