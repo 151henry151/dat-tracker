@@ -64,7 +64,7 @@ Fully automatic release is the goal; confidence gates flag hard shows instead of
 
 ## Status
 
-Early development (**0.1.0**). Ingest, cataloging, calibration corpora, and proposal/scoring tooling are in progress; the full LLM decision loop and packaging path are the active work. See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for detail.
+Early development (**0.1.0**). Version stays at 0.1.0 until this proof-of-concept can automatically track and package the Live Bluegrass DAT dump at the locked calibration gates in [PLAN.md](PLAN.md); later bumps are for broader input variety and polish. Ingest, cataloging, calibration corpora, and the sparse Gemini listen loop are in progress. See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for detail.
 
 ## Layout
 

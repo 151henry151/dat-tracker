@@ -23,6 +23,7 @@ from dat_tracker.refine_cuts import (
     merge_near_duplicate_cuts,
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
+    snap_cuts_to_nearby_silence_ends,
     thin_listen_centers,
 )
 from dat_tracker.speech import (
@@ -114,8 +115,8 @@ def run_track_show(
     duration = probe_duration_seconds(source_audio)
     energy_cuts = propose_cuts_from_audio(source_audio, min_separation_sec=60.0)
     silence_cuts = silence_end_candidates(
-        run_silencedetect(source_audio, noise_db=-40, min_silence_sec=0.8),
-        min_silence_sec=0.8,
+        run_silencedetect(source_audio, noise_db=-40, min_silence_sec=1.2),
+        min_silence_sec=1.2,
     )
     anchors, probes = speech_anchor_cuts_with_probes(
         segs,
@@ -185,6 +186,25 @@ def run_track_show(
             snapped,
             evidence_by_cut=evidence,
             note="Snapped mid cuts forward to last speech onset in look-ahead window.",
+        )
+    silence_snapped = snap_cuts_to_nearby_silence_ends(
+        list(plan.get("cuts_sec") or []),
+        silence_ends=silence_cuts,
+        duration_sec=duration,
+        look_back_sec=55.0,
+        look_ahead_sec=10.0,
+    )
+    if silence_snapped != list(plan.get("cuts_sec") or []):
+        evidence = {
+            c: [f"SILENCE_SNAP@{c}"]
+            for c in silence_snapped[1:-1]
+            if not any(abs(c - o) <= 0.05 for o in (plan.get("cuts_sec") or []))
+        }
+        plan = rebuild_tracks_from_cuts(
+            plan,
+            silence_snapped,
+            evidence_by_cut=evidence,
+            note="Snapped clearly-late mid cuts back onto silence ends (≥20s late, ≤55s look-back).",
         )
     dedupe_sep = adaptive_min_separation_sec(duration)
     deduped = merge_near_duplicate_cuts(

@@ -78,6 +78,50 @@ def snap_cuts_forward_to_speech(
     return mono
 
 
+def snap_cuts_to_nearby_silence_ends(
+    cuts_sec: list[float],
+    *,
+    silence_ends: list[float],
+    duration_sec: float,
+    look_back_sec: float = 55.0,
+    look_ahead_sec: float = 10.0,
+    min_late_sec: float = 20.0,
+    radius_sec: float | None = None,
+) -> list[float]:
+    """Pull clearly-late mid cuts back onto a recent silence end.
+
+    Only snaps when a silence end lies at least min_late_sec before the cut
+    (within look_back_sec). That corrects Gemini's common ~30–50s-late
+    placements without nudging already-close cuts onto the wrong gap.
+    """
+    if radius_sec is not None:
+        look_back_sec = float(radius_sec)
+    ends = sorted(float(s) for s in silence_ends)
+    ordered = sorted(float(c) for c in cuts_sec)
+    if not ordered:
+        return []
+    out = [ordered[0]]
+    for cut in ordered[1:-1]:
+        near = [
+            s
+            for s in ends
+            if cut - look_back_sec <= s <= cut - min_late_sec
+        ]
+        # Latest silence end in the late window (closest from behind).
+        out.append(max(near) if near else cut)
+    out.append(
+        ordered[-1] if abs(ordered[-1] - duration_sec) <= 0.05 else float(duration_sec)
+    )
+    mono: list[float] = [out[0]]
+    for c in out[1:]:
+        if c < mono[-1] + 0.05:
+            continue
+        mono.append(c)
+    if abs(mono[-1] - duration_sec) > 0.05:
+        mono.append(float(duration_sec))
+    return mono
+
+
 def merge_near_duplicate_cuts(
     cuts_sec: list[float],
     *,
