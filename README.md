@@ -2,6 +2,8 @@
 
 Track untrimmed live bluegrass DAT transfers (Dave W / Brian H collections) into etree-style FLAC sets and upload them to the Internet Archive.
 
+Once this dump is calibrated and packaged, the same tooling is intended to be reusable on other DAT→FLAC dumps (see Phase 5 in PLAN.md).
+
 ## Start here
 
 **Agents and humans:** follow **[PLAN.md](PLAN.md)**. That document is the source of truth for goals, conventions, phases, and the todo checklist.

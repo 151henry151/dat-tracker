@@ -7,6 +7,8 @@
 
 Download the full ~100GB Live Bluegrass Dropbox dump, build a human-in-the-loop AI tracking pipeline calibrated against Jon King’s already-uploaded Archive.org shows, then track and package every remaining show to etree/LMA standards for upload under Henry’s Archive.org account.
 
+**Second goal (locked):** once this Live Bluegrass run is calibrated and we can present finished tracked packages with confidence, **package the application and workflow** so others can apply the same method to **other DAT dumps** (different tapers, transfers, collections). Live Bluegrass is the proving ground and first product; the reusable tool is an explicit deliverable, not an afterthought.
+
 ## Context already verified
 
 - **Dropbox** ([Live Bluegrass](https://www.dropbox.com/scl/fo/lwcwu3y8qwktcdmcwt5b0/AFV4nzvqJ66AZ1vSMjs85vE?rlkey=62qci0un4hk40q9s0zu7r5gdg&dl=0)): ~**100 GB** zip (`content-length` ≈ 107 045 111 705 bytes); folders `Dave W Flacs`, `Brian H Flacs` (+ Wave 2/3), `Read Me_090726.txt`. Transfers are **untrimmed continuous FLACs with no track markers** (Cate Crowe: `DAT > Sony PCM-2600 > ESI U24XL > Audacity > FLAC`).
@@ -64,6 +66,7 @@ flowchart LR
 - Track **all** shows; do **not** wait on coordination first.
 - Treat Jon’s uploads as **calibration targets**: if our splits/names/metadata match those shows, proceed to package the rest for Henry’s Archive.org account.
 - Use **semantic versioning** and a **Keep a Changelog** changelog; commit messages and changelog entries in the imperative.
+- **Reusable product:** design the pipeline so Live Bluegrass-specific facts (Dropbox URL, Dave/Brian collection tags, Cate/Jon credit defaults, this dump’s folder layout) live in **config / catalog data**, not hard-wired into core tracking, review, packaging, or upload code. After a successful first batch, ship installable tooling + docs so another operator can point it at a different untrimmed DAT→FLAC dump and get the same human-in-the-loop flow.
 
 ## Directory layout
 
@@ -129,8 +132,18 @@ Do **not** re-upload the calibration shows as competing items if they already ex
 
 Once ground-truth match is solid and a first batch of new shows is packaged:
 
-- Draft (for Henry to post) a Reddit reply / email to OP summarizing method, validation against Jon’s uploads, and links to new IA items — offer the workflow/tooling if useful.
+- Draft (for Henry to post) a Reddit reply / email to OP summarizing method, validation against Jon’s uploads, and links to new IA items — **offer the reusable workflow/tooling**, not only the finished IA items.
 - Keep a checklist in the catalog of done vs remaining.
+
+## Phase 5 — Package for other DAT dumps
+
+Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block tracking on packaging polish).
+
+1. Extract a clear **operator-facing entrypoint** (CLI and/or small local UI): ingest raw continuous FLACs → propose boundaries → human review → export etree package (FLACs + show.txt + ffp + tags) → optional IA upload helpers.
+2. Document a **project/config model** for a new dump: paths, collection/subject tags, default transferer/tracker credits, source/lineage strings, optional ground-truth IA queries for calibration when analogs exist.
+3. Keep dump-specific inventory in `catalog/` (or equivalent); keep algorithms and UI generic under `src/`.
+4. Publish install/run docs (venv/`pip install`, ffmpeg/sox deps, disk expectations, resume downloads) so someone with another DAT transfer set can reproduce the workflow without reading this PLAN end-to-end.
+5. When presenting to the Bluegrass community, point at both the new IA uploads **and** the packaged tool.
 
 ## Suggested implementation order
 
@@ -139,6 +152,7 @@ Once ground-truth match is solid and a first batch of new shows is packaged:
 3. Build boundary proposer + offline diff against one known show (e.g. `jcb2002-08-02`).
 4. Add review UI; calibrate on all ground-truth shows.
 5. Process remaining shows in waves; upload when packages pass checklist.
+6. Package CLI/docs/config for reuse on other DAT dumps (Phase 5); mention it in the community write-up.
 
 ## Risks / notes
 
@@ -146,6 +160,7 @@ Once ground-truth match is solid and a first batch of new shows is packaged:
 - Some bands lack LMA permission → `taperssection` path is intentional, not a failure.
 - Live bluegrass banter density means silence-only splitters will fail calibration; classifier + human review is required.
 - Disk: `/home/henry` volume had ~380 GB free when this project was created (verify again before download).
+- Reuse packaging too early risks baking in Live Bluegrass assumptions; prefer proving calibration first, then extracting config (Phase 5). While building Phases 1–3, still **avoid hardcoding** collection names and credit strings in core modules when a config/parameter will do.
 
 ## Todo checklist
 
@@ -156,3 +171,4 @@ Once ground-truth match is solid and a first batch of new shows is packaged:
 - [ ] Build local waveform review UI for nudge/merge/split/label + segue marks
 - [ ] Export etree-named FLACs, Jon-style txt, ffp, tags; calibrate until ground-truth match
 - [ ] Track remaining shows; upload new items via `ia` CLI to etree or taperssection with correct credits
+- [ ] Phase 5: package installable workflow + docs so others can run it on other DAT dumps
