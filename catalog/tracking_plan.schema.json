@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/henry/dat-tracker/catalog/tracking_plan.schema.json",
+  "title": "DAT tracking plan",
+  "description": "Structured LLM (or heuristic draft) plan for cutting and labeling one continuous show FLAC.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "show_id",
+    "source_path",
+    "duration_sec",
+    "cuts_sec",
+    "tracks",
+    "overall_confidence",
+    "needs_review",
+    "notes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "show_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "duration_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "cuts_sec": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "type": "number", "minimum": 0 }
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/track" }
+    },
+    "overall_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "needs_review": {
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "track": {
+      "type": "object",
+      "required": [
+        "index",
+        "start_sec",
+        "end_sec",
+        "track_type",
+        "title",
+        "segue_into_next",
+        "confidence",
+        "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "start_sec": {
+          "type": "number",
+          "minimum": 0
+        },
+        "end_sec": {
+          "type": "number",
+          "minimum": 0
+        },
+        "track_type": {
+          "type": "string",
+          "enum": [
+            "song",
+            "banter",
+            "tuning",
+            "intro",
+            "encore_break",
+            "unknown"
+          ]
+        },
+        "title": {
+          "type": ["string", "null"]
+        },
+        "segue_into_next": {
+          "type": "boolean"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

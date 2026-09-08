@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add speech-island filtering, merge, and speech-prioritized boundary proposals that snap to energy and sparsely fill long song gaps.
+- Add tracking-plan JSON Schema plus heuristic draft builder and Del holdout dry-run script.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.
 - Add catalog builders for IA search docs, Dropbox zip paths, merge/status marking, and JSON/CSV writers.
