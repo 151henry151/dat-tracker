@@ -53,10 +53,14 @@ def request_tracking_plan_from_clips(
     api_key: str | None = None,
     model: str | None = None,
     project_root: Path | None = None,
+    max_retries: int = 5,
 ) -> dict[str, Any]:
     """Extract sparse clips, ask Gemini to listen, validate tracking-plan JSON."""
+    import time
+
     from google import genai
     from google.genai import types
+    from google.genai.errors import ServerError
 
     root = project_root or Path.cwd()
     key = api_key or resolve_gemini_api_key(project_root=root)
@@ -118,22 +122,37 @@ def request_tracking_plan_from_clips(
             )
         )
 
-    response = client.models.generate_content(
-        model=model_name,
-        contents=[
-            types.Content(
-                role="user",
-                parts=parts,
+    response = None
+    last_error: Exception | None = None
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=[
+                    types.Content(
+                        role="user",
+                        parts=parts,
+                    )
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                        disable=True
+                    ),
+                ),
             )
-        ],
-        config=types.GenerateContentConfig(
-            temperature=0.2,
-            response_mime_type="application/json",
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                disable=True
-            ),
-        ),
-    )
+            break
+        except ServerError as exc:
+            last_error = exc
+            # 503 capacity spikes are common; back off and retry.
+            if attempt + 1 >= max_retries:
+                raise
+            time.sleep(2 ** attempt)
+    if response is None:
+        assert last_error is not None
+        raise last_error
+
     text = getattr(response, "text", None) or ""
     if not text and getattr(response, "candidates", None):
         chunks: list[str] = []
