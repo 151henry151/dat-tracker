@@ -6,11 +6,9 @@ It targets a common archive problem: **track splitting** (also called song bound
 
 ## The problem
 
-Searching for “AI stem splitters” will send you to Spleeter-style tools that separate vocals from instruments. That is a different job.
+Live transfers often arrive as one long FLAC per tape or set. Turning that into a publishable show means placing every track boundary, naming songs, keeping banter and tuning as their own tracks, marking segues, writing the info file, fingerprints, and tags — then repeating it for the next dump. Done carefully by hand in a waveform editor, that is hours per show and does not scale when someone drops a hundred untrimmed DATs.
 
-What you need for a live show is **where each track starts and ends**, then packaging to community standards (etree / Live Music Archive conventions): filenames, setlists, banter and tuning kept as their own tracks, segues marked, `.txt` + `.ffp`, Vorbis tags, upload metadata.
-
-There is no polished consumer product for that the way there is for stems. What exists today is mostly heuristic:
+Helpers exist, but they rarely finish the job:
 
 - **Silence detection** (`ffmpeg silencedetect`, Audacity “Label Sounds”, browser splitters) — works poorly on live SBDs. Applause and room tone are not silence; thresholds that work in the studio find nothing on a gig tape, and thresholds that catch applause also fire inside songs.
 - **Spectral / energy shifts** — closer to the right idea for live material (instrumentation vs crowd), and tools like [Audio File Splitter](https://github.com/luckymuck/Audio-File-Splitter) explore that — still usually ends in dragging markers on a waveform.
@@ -18,7 +16,9 @@ There is no polished consumer product for that the way there is for stems. What 
 
 A realistic workflow with those tools on a two-hour set is: run detection, then spend a while fixing boundaries. Segues, quiet intros, and stage banter that runs into a count-in defeat a fully automatic silence pass.
 
-**dat-tracker** is built for that gap: automate the *tracking and packaging* pipeline, calibrate against already-excellent human-tracked shows, and treat remaining misses as rare exceptions — not as “open a waveform UI for every show.”
+(As an aside: search for “AI track splitting” and you mostly get **stem** splitters — vocals/drums/bass separation. That is a different task from chronological track marking on a continuous live recording.)
+
+**dat-tracker** is built for the labor gap: automate the *tracking and packaging* pipeline, calibrate against already-excellent human-tracked shows, and treat remaining misses as rare exceptions — not as “open a waveform UI for every show.”
 
 ## What it does
 
