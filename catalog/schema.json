@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/henry/bluegrass-dat-tracker/catalog/schema.json",
+  "title": "Bluegrass DAT show catalog",
+  "description": "Inventory of candidate shows from the Live Bluegrass Dropbox dump and their tracking/upload status.",
+  "type": "object",
+  "required": ["schema_version", "shows"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Catalog document schema version (semver)."
+    },
+    "shows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/show" }
+    }
+  },
+  "$defs": {
+    "show": {
+      "type": "object",
+      "required": [
+        "id",
+        "raw_path",
+        "artist",
+        "date",
+        "collection",
+        "status"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Etree-style show identifier, e.g. jcb2002-08-02 or ymsb2003-04-18.SBD.",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "minLength": 1
+        },
+        "raw_path": {
+          "type": "string",
+          "description": "Path to the untrimmed source FLAC relative to data/raw/, or absolute under the project data tree."
+        },
+        "artist": {
+          "type": "string",
+          "description": "Band or artist name as it should appear in show.txt / IA creator."
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Show date as YYYY-MM-DD."
+        },
+        "venue": {
+          "type": ["string", "null"],
+          "description": "Venue name when known."
+        },
+        "city": {
+          "type": ["string", "null"],
+          "description": "City when known."
+        },
+        "state": {
+          "type": ["string", "null"],
+          "description": "State/province abbreviation or name when known."
+        },
+        "collection": {
+          "type": "string",
+          "enum": ["Dave Ward Collection", "Brian H Collection"],
+          "description": "Source taper collection tag used on Archive.org."
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "todo",
+            "already_uploaded",
+            "in_progress",
+            "packaged",
+            "uploaded"
+          ],
+          "description": "Pipeline status for this show."
+        },
+        "ia_identifier": {
+          "type": ["string", "null"],
+          "description": "Existing or newly uploaded Archive.org item identifier, if any."
+        },
+        "ia_collection": {
+          "type": ["string", "null"],
+          "description": "Target or observed IA collection (band etree collection or taperssection)."
+        },
+        "source": {
+          "type": ["string", "null"],
+          "description": "Recording source lineage short form, e.g. SBD > DAT."
+        },
+        "notes": {
+          "type": ["string", "null"],
+          "description": "Free-form notes (J-card ambiguity, multi-set, calibration flags, etc.)."
+        }
+      }
+    }
+  }
+}
