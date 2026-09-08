@@ -1,6 +1,6 @@
 # Catalog
 
-Show inventory for the Live Bluegrass DAT dump.
+Show inventory for the current DAT dump (first dump: Live Bluegrass).
 
 | File | Role |
 |------|------|

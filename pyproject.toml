@@ -3,14 +3,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "bluegrass-dat-tracker"
+name = "dat-tracker"
 version = "0.1.0"
-description = "Track untrimmed live bluegrass DAT transfers into etree-style FLAC packages for Archive.org."
+description = "Human-in-the-loop tracking of untrimmed DAT transfers into etree-style FLAC packages for Archive.org."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Henry" }]
-dependencies = []
+dependencies = [
+  "internetarchive>=4.0",
+  "jsonschema>=4.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -18,7 +21,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/bluegrass_dat_tracker"]
+packages = ["src/dat_tracker"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

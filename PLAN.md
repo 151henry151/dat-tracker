@@ -1,6 +1,7 @@
-# Bluegrass DAT track-and-upload workflow
+# DAT track-and-upload workflow
 
-**Project root:** `/home/henry/dev/bluegrass-dat-tracker`  
+**Project root:** `/home/henry/dev/dat-tracker`  
+**Project / package name:** `dat-tracker` (Python import package: `dat_tracker`)  
 **For agents:** Read this file first and execute it in order. Do not wait on community coordination before tracking. Validate against already-uploaded Archive.org shows before presenting new uploads.
 
 ## Overview
@@ -61,7 +62,7 @@ flowchart LR
 
 ## Decisions locked in
 
-- Project lives at **`/home/henry/dev/bluegrass-dat-tracker`** (this repo).
+- Project lives at **`/home/henry/dev/dat-tracker`** (this repo; package name `dat-tracker`).
 - Download **entire** Dropbox dump (~100 GB; host has ample free space).
 - Track **all** shows; do **not** wait on coordination first.
 - Treat Jon’s uploads as **calibration targets**: if our splits/names/metadata match those shows, proceed to package the rest for Henry’s Archive.org account.

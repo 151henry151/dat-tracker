@@ -48,3 +48,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Download / runtime logs (may contain huge curl progress spam)
+logs/
+!logs/.gitkeep

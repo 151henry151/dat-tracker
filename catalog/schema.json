@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/henry/bluegrass-dat-tracker/catalog/schema.json",
-  "title": "Bluegrass DAT show catalog",
-  "description": "Inventory of candidate shows from the Live Bluegrass Dropbox dump and their tracking/upload status.",
+  "$id": "https://github.com/henry/dat-tracker/catalog/schema.json",
+  "title": "DAT show catalog",
+  "description": "Inventory of candidate shows from a DAT→FLAC dump and their tracking/upload status.",
   "type": "object",
   "required": ["schema_version", "shows"],
   "additionalProperties": false,

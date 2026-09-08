@@ -1,8 +1,8 @@
-# bluegrass-dat-tracker
+# dat-tracker
 
-Track untrimmed live bluegrass DAT transfers (Dave W / Brian H collections) into etree-style FLAC sets and upload them to the Internet Archive.
+Human-in-the-loop tracking of untrimmed DAT→FLAC transfers into etree-style packages for the Internet Archive.
 
-Once this dump is calibrated and packaged, the same tooling is intended to be reusable on other DAT→FLAC dumps (see Phase 5 in PLAN.md).
+First proving ground: the Live Bluegrass Dave W / Brian H dump. The same tooling is intended for other DAT dumps of any genre (see Phase 5 in PLAN.md).
 
 ## Start here
 
