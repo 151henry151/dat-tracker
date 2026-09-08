@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "dat-tracker"
 version = "0.1.0"
-description = "Human-in-the-loop tracking of untrimmed DAT transfers into etree-style FLAC packages for Archive.org."
+description = "LLM-powered automatic tracking of untrimmed DAT transfers into etree-style FLAC packages for Archive.org."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

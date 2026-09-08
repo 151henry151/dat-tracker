@@ -28,7 +28,7 @@ First proving ground: the Live Bluegrass Dave W / Brian H dump. The same tooling
 
 ## Status
 
-Phase 0 complete; Phase 1 ingest tooling in place (Dropbox + ground-truth downloads, catalog builders). Next: finish ingest, then Phase 2 LLM automatic tracking calibrated on Jon’s IA uploads. See **[PLAN.md](PLAN.md)**.
+Phase 1 ingest largely done: Dropbox zip complete, 15 ground-truth IA items on disk, catalog rebuilt (~155 shows; 14/15 calibration raw paths linked). Phase 2 started: ground-truth boundary auto-diff helpers + first calibration raw extracted (`jcb2002-08-02`). Next: signal extractors + LLM tracking loop. See **[PLAN.md](PLAN.md)**.
 
 ## Version
 

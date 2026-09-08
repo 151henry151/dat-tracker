@@ -178,8 +178,9 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 ## Todo checklist
 
 - [x] Phase 0: scaffold (semver, changelog, catalog schema)
-- [ ] Download full ~100GB Dropbox dump into `data/raw/` with resume
-- [ ] Download all Dave Ward / Brian H IA items; mark catalog `already_uploaded` vs `todo`
+- [x] Download full ~100GB Dropbox dump into `data/raw/` with resume
+- [x] Download all Dave Ward / Brian H IA items; mark catalog `already_uploaded` vs `todo`
+- [x] Build catalog from zip listing + IA (YYMMDD dump names); link calibration raw paths
 - [ ] Implement signal extractors + auto-diff against Jon ground-truth FLACs
 - [ ] Implement LLM tracking loop (boundaries, labels, segues, titles) with confidence gates
 - [ ] Calibrate until held-out ground-truth match is shippable without human cuts
