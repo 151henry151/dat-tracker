@@ -9,11 +9,18 @@ from typing import Any
 from dat_tracker.boundaries import probe_duration_seconds, summarize_comparison
 from dat_tracker.export_tracks import export_tracks_from_plan
 from dat_tracker.gemini_tracker import (
+    refine_tracking_plan_cuts,
     request_tracking_plan_from_clips,
     speech_anchor_cuts_with_probes,
 )
 from dat_tracker.package import package_show_from_plan
-from dat_tracker.speech import parse_whisper_segments, transcribe_faster_whisper
+from dat_tracker.refine_cuts import rebuild_tracks_from_cuts, snap_cuts_forward_to_speech
+from dat_tracker.speech import (
+    filter_plausible_speech_segments,
+    merge_speech_islands,
+    parse_whisper_segments,
+    transcribe_faster_whisper,
+)
 
 
 def track_show_paths(work_root: Path, show_id: str) -> dict[str, Path]:
@@ -77,6 +84,10 @@ def run_track_show(
     probe_step_sec: float = 90.0,
     whisper_cache_path: Path | None = None,
     skip_package: bool = False,
+    refine: bool = False,
+    refine_half_window_sec: float = 20.0,
+    speech_snap: bool = True,
+    speech_snap_look_ahead_sec: float = 45.0,
 ) -> dict[str, Any]:
     """Run sparse Gemini tracking and optionally export an etree-style package."""
     root = project_root or Path.cwd()
@@ -114,6 +125,35 @@ def run_track_show(
         half_window_sec=half_window_sec,
         project_root=root,
     )
+    if refine:
+        plan = refine_tracking_plan_cuts(
+            plan,
+            source_audio=source_audio,
+            work_dir=paths["work_dir"] / "gemini_refine",
+            half_window_sec=refine_half_window_sec,
+            project_root=root,
+        )
+    if speech_snap:
+        islands = merge_speech_islands(
+            filter_plausible_speech_segments(segs, max_seg_sec=20.0)
+        )
+        snapped = snap_cuts_forward_to_speech(
+            list(plan.get("cuts_sec") or []),
+            speech_islands=islands,
+            duration_sec=duration,
+            look_ahead_sec=speech_snap_look_ahead_sec,
+        )
+        evidence = {
+            c: [f"SPEECH_SNAP_FORWARD@{c}"]
+            for c in snapped[1:-1]
+            if not any(abs(c - o) <= 0.05 for o in (plan.get("cuts_sec") or []))
+        }
+        plan = rebuild_tracks_from_cuts(
+            plan,
+            snapped,
+            evidence_by_cut=evidence,
+            note="Snapped mid cuts forward to last speech onset in look-ahead window.",
+        )
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
 
     result: dict[str, Any] = {

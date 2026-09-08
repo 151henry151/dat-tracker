@@ -26,8 +26,8 @@ def main() -> int:
         default=None,
         help="Continuous FLAC (default: data/calibration/<id>/synthetic_continuous.flac)",
     )
-    parser.add_argument("--artist", required=True)
-    parser.add_argument("--date", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--artist", default=None)
+    parser.add_argument("--date", default=None, help="YYYY-MM-DD")
     parser.add_argument("--tracker", default="Henry")
     parser.add_argument("--venue", default=None)
     parser.add_argument("--city", default=None)
@@ -42,6 +42,26 @@ def main() -> int:
         help="Only write the Gemini tracking plan (no FLAC/txt/ffp export)",
     )
     parser.add_argument(
+        "--refine",
+        action="store_true",
+        help="Extra Gemini listen pass to snap cuts (off by default; costly)",
+    )
+    parser.add_argument(
+        "--no-speech-snap",
+        action="store_true",
+        help="Disable forward snap of cuts onto nearby speech onsets",
+    )
+    parser.add_argument(
+        "--refine-only",
+        action="store_true",
+        help="Refine an existing tracking_plan_gemini.json without re-proposing",
+    )
+    parser.add_argument(
+        "--speech-snap-only",
+        action="store_true",
+        help="Apply speech forward-snap to an existing plan (no Gemini call)",
+    )
+    parser.add_argument(
         "--reuse-calibration-whisper",
         action="store_true",
         help="Prefer data/calibration/<id>/whisper_segments.json when present",
@@ -54,29 +74,82 @@ def main() -> int:
         print(f"Missing source {source}", file=sys.stderr)
         return 1
 
-    whisper_cache = None
-    if args.reuse_calibration_whisper:
-        cand = cal / "whisper_segments.json"
-        if cand.is_file():
-            whisper_cache = cand
+    if args.speech_snap_only:
+        from dat_tracker.refine_cuts import (
+            rebuild_tracks_from_cuts,
+            snap_cuts_forward_to_speech,
+        )
+        from dat_tracker.speech import (
+            filter_plausible_speech_segments,
+            merge_speech_islands,
+            parse_whisper_segments,
+        )
 
-    result = run_track_show(
-        source_audio=source,
-        show_id=args.show_id,
-        work_root=ROOT / "data" / "work",
-        artist=args.artist,
-        date=args.date,
-        tracker=args.tracker,
-        venue=args.venue,
-        city=args.city,
-        state=args.state,
-        source_line=args.source_line,
-        transfer=args.transfer,
-        project_root=ROOT,
-        whisper_model=args.whisper_model,
-        whisper_cache_path=whisper_cache,
-        skip_package=args.skip_package,
-    )
+        plan_path = ROOT / "data" / "work" / args.show_id / "tracking_plan_gemini.json"
+        cache = cal / "whisper_segments.json"
+        if not plan_path.is_file() or not cache.is_file():
+            print(f"Need {plan_path} and {cache}", file=sys.stderr)
+            return 1
+        plan = json.loads(plan_path.read_text())
+        segs = parse_whisper_segments(json.loads(cache.read_text()))
+        islands = merge_speech_islands(
+            filter_plausible_speech_segments(segs, max_seg_sec=20.0)
+        )
+        snapped = snap_cuts_forward_to_speech(
+            list(plan["cuts_sec"]),
+            speech_islands=islands,
+            duration_sec=float(plan["duration_sec"]),
+        )
+        plan = rebuild_tracks_from_cuts(plan, snapped)
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+        result = {"plan": plan, "paths": {"plan": str(plan_path)}}
+    elif args.refine_only:
+        from dat_tracker.gemini_tracker import refine_tracking_plan_cuts
+
+        plan_path = ROOT / "data" / "work" / args.show_id / "tracking_plan_gemini.json"
+        if not plan_path.is_file():
+            print(f"Missing {plan_path}", file=sys.stderr)
+            return 1
+        plan = json.loads(plan_path.read_text())
+        plan = refine_tracking_plan_cuts(
+            plan,
+            source_audio=source,
+            work_dir=ROOT / "data" / "work" / args.show_id / "gemini_refine",
+            project_root=ROOT,
+        )
+        plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+        result = {"plan": plan, "paths": {"plan": str(plan_path)}}
+    else:
+        whisper_cache = None
+        if args.reuse_calibration_whisper:
+            cand = cal / "whisper_segments.json"
+            if cand.is_file():
+                whisper_cache = cand
+
+        result = run_track_show(
+            source_audio=source,
+            show_id=args.show_id,
+            work_root=ROOT / "data" / "work",
+            artist=args.artist or "Unknown Artist",
+            date=args.date or "1970-01-01",
+            tracker=args.tracker,
+            venue=args.venue,
+            city=args.city,
+            state=args.state,
+            source_line=args.source_line,
+            transfer=args.transfer,
+            project_root=ROOT,
+            whisper_model=args.whisper_model,
+            whisper_cache_path=whisper_cache,
+            skip_package=args.skip_package,
+            refine=args.refine,
+            speech_snap=not args.no_speech_snap,
+        )
+        if not args.skip_package and (not args.artist or not args.date):
+            print(
+                "warning: package used placeholder artist/date; pass --artist and --date",
+                file=sys.stderr,
+            )
 
     known_path = cal / "known_cuts.json"
     if known_path.is_file():
