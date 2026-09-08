@@ -339,14 +339,20 @@ def speech_anchor_cuts_with_probes(
     duration_sec: float,
     max_gap_sec: float = 240.0,
     probe_step_sec: float = 90.0,
+    sparse_mid_anchor_threshold: int = 3,
+    sparse_probe_step_sec: float = 60.0,
 ) -> tuple[list[float], list[float]]:
     """Speech-island starts as anchors; gap probes for long music spans.
+
+    Also folds in onsets of overlong Whisper spans (common song-length
+    hallucinations). When mid-show anchors are sparse, tighten probe spacing.
 
     Returns (anchor_cuts including endpoints, probe_centers only).
     """
     from dat_tracker.speech import (
         cuts_from_speech_islands,
         filter_plausible_speech_segments,
+        long_segment_onset_candidates,
         merge_speech_islands,
     )
 
@@ -354,11 +360,22 @@ def speech_anchor_cuts_with_probes(
         filter_plausible_speech_segments(segments, max_seg_sec=20.0)
     )
     anchors = cuts_from_speech_islands(islands, duration_sec=duration_sec)
+    for onset in long_segment_onset_candidates(segments, min_seg_sec=20.0):
+        # Skip onsets that are just the tail of an already-kept banter island.
+        if not any(abs(onset - a) <= 15.0 for a in anchors):
+            anchors.append(onset)
+    anchors = sorted(anchors)
+
+    mid_anchors = [a for a in anchors if 0.05 < a < duration_sec - 0.05]
+    step = probe_step_sec
+    if len(mid_anchors) < sparse_mid_anchor_threshold:
+        step = min(step, sparse_probe_step_sec)
+
     with_probes = add_gap_probe_centers(
         anchors,
         duration_sec=duration_sec,
         max_gap_sec=max_gap_sec,
-        probe_step_sec=probe_step_sec,
+        probe_step_sec=step,
     )
     probes = [
         c

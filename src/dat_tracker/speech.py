@@ -61,6 +61,29 @@ def filter_plausible_speech_segments(
     return out
 
 
+def long_segment_onset_candidates(
+    segments: list[dict[str, Any]],
+    *,
+    min_seg_sec: float = 20.0,
+    min_start_sec: float = 0.5,
+) -> list[float]:
+    """Keep starts of overlong Whisper spans as weak boundary hints.
+
+    Whisper often glues a whole song into one segment; the onset can still land
+    near a real track change even though the text/end time are wrong.
+    """
+    onsets: list[float] = []
+    for seg in segments:
+        start = float(seg["start"])
+        end = float(seg["end"])
+        if start < min_start_sec:
+            continue
+        if end - start < min_seg_sec:
+            continue
+        onsets.append(start)
+    return onsets
+
+
 def merge_speech_islands(
     segments: list[dict[str, Any]],
     *,

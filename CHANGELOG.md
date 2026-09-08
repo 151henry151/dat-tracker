@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `track_show` orchestration and CLI (Whisper → sparse Gemini listen → optional package).
 - Retry Gemini generate_content on transient 503 capacity errors with exponential backoff.
 - Add optional Gemini refine pass and deterministic forward snap of cuts onto nearby speech onsets.
+- Use overlong Whisper segment onsets as boundary anchors and densify probes when mid-show speech is sparse.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.
 - Add catalog builders for IA search docs, Dropbox zip paths, merge/status marking, and JSON/CSV writers.
