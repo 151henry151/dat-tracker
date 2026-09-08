@@ -13,6 +13,7 @@ authors = [{ name = "Henry" }]
 dependencies = [
   "internetarchive>=4.0",
   "jsonschema>=4.0",
+  "google-genai>=1.0",
 ]
 
 [project.optional-dependencies]

@@ -16,11 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Broaden track FLAC ordering to compact `…tNN…` and `dNtMM` etree filename styles used by external packages.
 - Rewrite README as a public-facing description of track splitting, the product goal, and how dat-tracker approaches it.
 - Reframe the README problem statement around manual tracking labor; mention stem-splitter search confusion only as a brief aside.
+- Lock Phase 2 on an audio-native LLM-in-the-loop tracker (Gemini preferred); classical/ASR features are optional aids, not a text-only substitute for listening.
+- Prefer sparse Gemini listening on short clips around candidate cuts (Flash by default) to limit audio token cost.
+- Add mid-gap probe centers and ACCEPT/REJECT/SNAP listening prompt so Gemini can drop false proposals and scrub long spans.
 
 ### Added
 
 - Add speech-island filtering, merge, and speech-prioritized boundary proposals that snap to energy and sparsely fill long song gaps.
 - Add tracking-plan JSON Schema plus heuristic draft builder and Del holdout dry-run script.
+- Add sparse Gemini listening helpers (clip windows, `.env` loader) and Del dry-run against the tracking-plan schema.
+- Add `.env.example` documenting `GEMINI_API_KEY` and default Flash model.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.
 - Add catalog builders for IA search docs, Dropbox zip paths, merge/status marking, and JSON/CSV writers.

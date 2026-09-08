@@ -64,6 +64,7 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 # optional ASR extras
 pip install -e ".[asr]"
+cp .env.example .env   # set GEMINI_API_KEY for sparse audio tracking dry-runs
 pytest
 ```
 
