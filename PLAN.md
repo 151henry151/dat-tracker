@@ -6,7 +6,9 @@
 
 ## Overview
 
-Download the full ~100GB Live Bluegrass Dropbox dump, build a human-in-the-loop AI tracking pipeline calibrated against Jon King’s already-uploaded Archive.org shows, then track and package every remaining show to etree/LMA standards for upload under Henry’s Archive.org account.
+Download the full ~100GB Live Bluegrass Dropbox dump, build an **LLM-powered automatic tracking pipeline** calibrated against Jon King’s already-uploaded Archive.org shows, then track and package every remaining show to etree/LMA standards for upload under Henry’s Archive.org account.
+
+**Quality bar (locked):** packages for new shows must match the style and accuracy of Jon’s calibration set closely enough that **human waveform review is not part of the happy path**. Prefer **no human intervention**; allow only **extremely minimal** review when automated confidence or calibration metrics fail a show (flag for optional spot-check, do not require a waveform UI workflow).
 
 **Second goal (locked):** once this Live Bluegrass run is calibrated and we can present finished tracked packages with confidence, **package the application and workflow** so others can apply the same method to **other DAT dumps** (different tapers, transfers, collections). Live Bluegrass is the proving ground and first product; the reusable tool is an explicit deliverable, not an afterthought.
 
@@ -53,11 +55,12 @@ New uploads should keep Cate Crowe as transferer and credit the actual tracker/u
 ```mermaid
 flowchart LR
   dropbox[Dropbox ~100GB] --> local[Local raw FLACs]
-  local --> propose[AI propose boundaries]
-  propose --> review[Human waveform review]
-  review --> package[Name tag txt ffp]
-  package --> validate[Diff vs Jon IA uploads]
-  validate --> upload[ia upload etree or taperssection]
+  local --> signals[Audio signals + ASR snippets]
+  signals --> llm[LLM decide boundaries labels titles]
+  llm --> package[Name tag txt ffp]
+  package --> validate[Auto-diff vs Jon IA uploads]
+  validate -->|pass| upload[ia upload etree or taperssection]
+  validate -->|fail| flag[Flag rare spot-check]
 ```
 
 ## Decisions locked in
@@ -66,8 +69,9 @@ flowchart LR
 - Download **entire** Dropbox dump (~100 GB; host has ample free space).
 - Track **all** shows; do **not** wait on coordination first.
 - Treat Jon’s uploads as **calibration targets**: if our splits/names/metadata match those shows, proceed to package the rest for Henry’s Archive.org account.
+- **Automation first (locked):** the LLM (with audio/analysis tools) drives boundary placement, track-type labels, segue marks, titles/setlist, and packaging. Do **not** build a required human waveform review UI. Human involvement is reserved for exceptional failures (metrics/confidence below threshold), ideally none for well-behaved shows.
 - Use **semantic versioning** and a **Keep a Changelog** changelog; commit messages and changelog entries in the imperative.
-- **Reusable product:** design the pipeline so Live Bluegrass-specific facts (Dropbox URL, Dave/Brian collection tags, Cate/Jon credit defaults, this dump’s folder layout) live in **config / catalog data**, not hard-wired into core tracking, review, packaging, or upload code. After a successful first batch, ship installable tooling + docs so another operator can point it at a different untrimmed DAT→FLAC dump and get the same human-in-the-loop flow.
+- **Reusable product:** design the pipeline so Live Bluegrass-specific facts (Dropbox URL, Dave/Brian collection tags, Cate/Jon credit defaults, this dump’s folder layout) live in **config / catalog data**, not hard-wired into core tracking, packaging, or upload code. After a successful first batch, ship installable tooling + docs so another operator can point it at a different untrimmed DAT→FLAC dump and get the same automatic, calibration-gated flow.
 
 ## Directory layout
 
@@ -95,28 +99,34 @@ flowchart LR
 3. Cross-reference catalog against IA (`subject:"Dave Ward Collection"` / `Brian H Collection` and artist+date) → mark rows `already_uploaded` vs `todo`.
 4. Download all already-uploaded items into `data/ground_truth/` (FLACs + `.txt` + `fingerprint.ffp.txt`) for offline comparison.
 
-## Phase 2 — AI-assisted tracking (human-in-the-loop)
+## Phase 2 — LLM-powered automatic tracking
 
-**Goal:** Propose split points; a human confirms on a waveform. Fully automatic release is not the bar — matching Jon’s style is.
+**Goal:** End-to-end automatic tracking that **matches Jon’s calibration packages** (boundaries, track count/types, titles, txt/ffp/tags) well enough to ship without human waveform review. Silence detection alone is insufficient; the LLM must reason over rich audio-derived evidence.
 
 Pipeline per raw full-show FLAC:
 
 1. **Decode once** to a working WAV/PCM cache (or stream via ffmpeg) for analysis.
-2. **Boundary proposal** (ensemble, not silence-only):
+2. **Signal / feature extraction** (tools the LLM consumes; ensemble, not silence-only):
    - Energy / onset envelope + silence gaps (pydub/librosa/ffmpeg `silencedetect`).
    - Music vs non-music classifier (e.g. YAMNet-style approach as in [XTRACK](https://github.com/FlorianColombo/xtrack)) for applause / speech / music — critical because bluegrass often has **short** gaps and **long banter** that must stay as tracks.
    - Optional: chroma/novelty for song-to-song changes when applause is continuous.
-3. **Review UI** (minimal, local): waveform + proposed cut markers; nudge/merge/split; label track type (song / banter / tuning / intro / encore break); mark segues.
-4. **Export cuts** losslessly (`flac`/`sox`/`ffmpeg` sample-accurate) into etree filenames.
-5. **Setlist assist**: optional ASR on banter + music fingerprint / LLM title guess from snippets — always human-editable; ground-truth shows teach expected title style.
-6. Emit **show.txt** (Jon’s template: artist, date, venue, source, transfer, “Tracked & Uploaded by: …”, setlist, notes about Dave/Brian collections) + **fingerprint.ffp.txt** + Vorbis tags on each FLAC.
+   - **ASR** on likely speech/banter regions; optional music fingerprint / embedding snippets for title identity.
+3. **LLM tracking decision** (core of the pipeline):
+   - Choose cut points (sample-accurate or frame-aligned then snapped).
+   - Label each track (song / banter / tuning / intro / encore break).
+   - Mark segues (`>`).
+   - Propose titles and setlist structure in Jon’s style, using ASR, fingerprints, folder/J-card context, and calibration examples.
+   - Emit a structured tracking plan (JSON or equivalent) with per-boundary confidence.
+4. **Export cuts** losslessly (`flac`/`sox`/`ffmpeg` sample-accurate) into etree filenames from the LLM plan — no manual nudge step.
+5. Emit **show.txt** (Jon’s template: artist, date, venue, source, transfer, “Tracked & Uploaded by: …”, setlist, notes about Dave/Brian collections) + **fingerprint.ffp.txt** + Vorbis tags on each FLAC.
+6. **Exception path only:** if confidence or post-export checks fail thresholds, mark the catalog row `needs_review` and optionally dump a lightweight diagnostic (boundaries + spectrogram/energy plot). Do **not** require a full interactive waveform editor for normal operation.
 
-Calibration loop on the ~15 ground-truth shows:
+Calibration loop on the ~15 ground-truth shows (gate before batching the rest):
 
-- Run proposal → compare cut times to Jon’s track boundaries (align via cross-correlation / duration matching).
-- Metrics: boundary F1 within ±N ms, track-count match, title similarity.
-- Tune thresholds / post-rules (e.g. keep short speech islands as Banter; don’t merge across clear applause) until agreement is strong on a held-out subset of those shows.
-- Only then batch-process the rest with the same review discipline.
+- Run full automatic pipeline → compare to Jon’s track boundaries (align via cross-correlation / duration matching), track types, titles, and packaged txt.
+- Metrics: boundary F1 within ±N ms, track-count match, title similarity, set/structure agreement.
+- Hold out a subset; tune prompts, tool thresholds, and post-rules until **held-out** agreement is strong enough to treat as shippable without human cuts.
+- Only then batch-process remaining shows; auto-accept packages that pass the same confidence/checklist gates.
 
 ## Phase 3 — Package and upload standards
 
@@ -134,42 +144,45 @@ Do **not** re-upload the calibration shows as competing items if they already ex
 Once ground-truth match is solid and a first batch of new shows is packaged:
 
 - Draft (for Henry to post) a Reddit reply / email to OP summarizing method, validation against Jon’s uploads, and links to new IA items — **offer the reusable workflow/tooling**, not only the finished IA items.
-- Keep a checklist in the catalog of done vs remaining.
+- Keep a checklist in the catalog of done vs remaining (including any rare `needs_review` leftovers).
 
 ## Phase 5 — Package for other DAT dumps
 
 Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block tracking on packaging polish).
 
-1. Extract a clear **operator-facing entrypoint** (CLI and/or small local UI): ingest raw continuous FLACs → propose boundaries → human review → export etree package (FLACs + show.txt + ffp + tags) → optional IA upload helpers.
-2. Document a **project/config model** for a new dump: paths, collection/subject tags, default transferer/tracker credits, source/lineage strings, optional ground-truth IA queries for calibration when analogs exist.
-3. Keep dump-specific inventory in `catalog/` (or equivalent); keep algorithms and UI generic under `src/`.
-4. Publish install/run docs (venv/`pip install`, ffmpeg/sox deps, disk expectations, resume downloads) so someone with another DAT transfer set can reproduce the workflow without reading this PLAN end-to-end.
+1. Extract a clear **operator-facing entrypoint** (CLI): ingest raw continuous FLACs → LLM tracking → export etree package (FLACs + show.txt + ffp + tags) → optional IA upload helpers; optional `needs_review` report for failures.
+2. Document a **project/config model** for a new dump: paths, collection/subject tags, default transferer/tracker credits, source/lineage strings, optional ground-truth IA queries for calibration when analogs exist, LLM/provider settings.
+3. Keep dump-specific inventory in `catalog/` (or equivalent); keep algorithms and LLM tooling generic under `src/`.
+4. Publish install/run docs (venv/`pip install`, ffmpeg/sox deps, disk expectations, resume downloads, API keys for LLM/ASR) so someone with another DAT transfer set can reproduce the workflow without reading this PLAN end-to-end.
 5. When presenting to the Bluegrass community, point at both the new IA uploads **and** the packaged tool.
 
 ## Suggested implementation order
 
 1. Scaffold project + changelog/version (Phase 0).
 2. Start full Dropbox download; while it runs, pull ground-truth IA items + write catalog schema and Jon-template txt generator.
-3. Build boundary proposer + offline diff against one known show (e.g. `jcb2002-08-02`).
-4. Add review UI; calibrate on all ground-truth shows.
-5. Process remaining shows in waves; upload when packages pass checklist.
+3. Build signal extractors + offline auto-diff against one known show (e.g. `jcb2002-08-02`).
+4. Wire LLM decision loop (boundaries, labels, titles) and iterate until calibration metrics pass on held-out ground-truth shows.
+5. Batch remaining shows with confidence gates; upload when packages pass checklist (spot-check only failures).
 6. Package CLI/docs/config for reuse on other DAT dumps (Phase 5); mention it in the community write-up.
 
 ## Risks / notes
 
 - **100 GB** download may take hours; use resume-capable tooling.
 - Some bands lack LMA permission → `taperssection` path is intentional, not a failure.
-- Live bluegrass banter density means silence-only splitters will fail calibration; classifier + human review is required.
+- Live bluegrass banter density means silence-only splitters will fail calibration; **LLM + classifier/ASR evidence** is required — not a human review crutch.
+- Achieving Jon-level agreement with zero intervention is hard; treat weak metrics as a pipeline bug to fix, not as a reason to add a waveform UI.
 - Disk: `/home/henry` volume had ~380 GB free when this project was created (verify again before download).
 - Reuse packaging too early risks baking in Live Bluegrass assumptions; prefer proving calibration first, then extracting config (Phase 5). While building Phases 1–3, still **avoid hardcoding** collection names and credit strings in core modules when a config/parameter will do.
+- LLM/ASR cost and latency will matter at full-dump scale; cache features and avoid re-decoding.
 
 ## Todo checklist
 
 - [x] Phase 0: scaffold (semver, changelog, catalog schema)
 - [ ] Download full ~100GB Dropbox dump into `data/raw/` with resume
 - [ ] Download all Dave Ward / Brian H IA items; mark catalog `already_uploaded` vs `todo`
-- [ ] Implement ensemble boundary proposer + compare cuts to Jon ground-truth FLACs
-- [ ] Build local waveform review UI for nudge/merge/split/label + segue marks
-- [ ] Export etree-named FLACs, Jon-style txt, ffp, tags; calibrate until ground-truth match
+- [ ] Implement signal extractors + auto-diff against Jon ground-truth FLACs
+- [ ] Implement LLM tracking loop (boundaries, labels, segues, titles) with confidence gates
+- [ ] Calibrate until held-out ground-truth match is shippable without human cuts
+- [ ] Export etree-named FLACs, Jon-style txt, ffp, tags; batch remaining shows
 - [ ] Track remaining shows; upload new items via `ia` CLI to etree or taperssection with correct credits
-- [ ] Phase 5: package installable workflow + docs so others can run it on other DAT dumps
+- [ ] Phase 5: package installable automatic workflow + docs so others can run it on other DAT dumps

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Rename project and Python package from `bluegrass-dat-tracker` / `bluegrass_dat_tracker` to `dat-tracker` / `dat_tracker`.
+- Change Phase 2 from human-in-the-loop waveform review to LLM-powered automatic tracking with calibration-gated release and exceptional-only human spot-checks.
 
 ### Added
 

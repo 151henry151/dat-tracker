@@ -1,6 +1,6 @@
 # dat-tracker
 
-Human-in-the-loop tracking of untrimmed DAT→FLAC transfers into etree-style packages for the Internet Archive.
+LLM-powered automatic tracking of untrimmed DAT→FLAC transfers into etree-style packages for the Internet Archive, calibrated so human waveform review is not required.
 
 First proving ground: the Live Bluegrass Dave W / Brian H dump. The same tooling is intended for other DAT dumps of any genre (see Phase 5 in PLAN.md).
 
@@ -28,7 +28,7 @@ First proving ground: the Live Bluegrass Dave W / Brian H dump. The same tooling
 
 ## Status
 
-Phase 0 complete (scaffold at `0.1.0`). Next: Phase 1 — ingest Dropbox dump and build the show catalog. See **[PLAN.md](PLAN.md)**.
+Phase 0 complete; Phase 1 ingest tooling in place (Dropbox + ground-truth downloads, catalog builders). Next: finish ingest, then Phase 2 LLM automatic tracking calibrated on Jon’s IA uploads. See **[PLAN.md](PLAN.md)**.
 
 ## Version
 
