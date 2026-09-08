@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add Tier B external calibration manifest, download script, and synthetic re-split helpers.
 - Document the perception → LLM decision → archive-learning stack for automatic tracking.
 - Add RMS energy / novelty boundary proposals and a Tier B scoring script.
+- Add candidate fusion across silence/energy/speech sources and faster-whisper speech-edge proposals.
 
 ## [0.1.0] — 2026-09-08
 
