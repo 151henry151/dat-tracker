@@ -8,6 +8,7 @@ from typing import Any
 
 from dat_tracker.boundaries import probe_duration_seconds, summarize_comparison
 from dat_tracker.energy import propose_cuts_from_audio
+from dat_tracker.silence import run_silencedetect, silence_end_candidates
 from dat_tracker.export_tracks import export_tracks_from_plan
 from dat_tracker.gemini_tracker import (
     refine_tracking_plan_cuts,
@@ -112,12 +113,17 @@ def run_track_show(
     segs = parse_whisper_segments(payload)
     duration = probe_duration_seconds(source_audio)
     energy_cuts = propose_cuts_from_audio(source_audio, min_separation_sec=60.0)
+    silence_cuts = silence_end_candidates(
+        run_silencedetect(source_audio, noise_db=-40, min_silence_sec=0.8),
+        min_silence_sec=0.8,
+    )
     anchors, probes = speech_anchor_cuts_with_probes(
         segs,
         duration_sec=duration,
         max_gap_sec=max_gap_sec,
         probe_step_sec=probe_step_sec,
         energy_cuts=energy_cuts,
+        silence_cuts=silence_cuts,
     )
     anchors, probes = thin_listen_centers(
         anchors=anchors,

@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Promote energy novelty peaks in medium speech gaps to listen anchors.
 - Retry Gemini generate_content on 429 rate-limit errors with longer backoff.
 - Retry Gemini listen when the model returns truncated or invalid JSON; raise max output tokens; prefer empty tracks arrays in the listen prompt.
+- Materialize tracks from cuts_sec when Gemini returns an empty tracks array.
+- Promote silence-end times in medium gaps to listen anchors.
 - Lock numeric held-out calibration gates (Tier B mean F1 ≥ 0.85 @ ±15s; Tier A mean F1 ≥ 0.80) before Live Bluegrass batching.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.

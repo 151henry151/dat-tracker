@@ -45,3 +45,21 @@ def test_merge_energy_into_anchors_promotes_peaks_in_medium_gaps():
     assert any(abs(a - 780.0) < 0.01 for a in out)
     # Too close to existing speech anchor.
     assert not any(abs(a - 502.0) < 0.01 for a in out)
+
+
+def test_speech_anchors_include_silence_ends_in_medium_gaps():
+    from dat_tracker.gemini_tracker import speech_anchor_cuts_with_probes
+
+    # Sparse speech; silence end at 643 sits in a long gap (like JCB).
+    segments = [
+        {"start": 0.0, "end": 2.0, "text": "hi"},
+        {"start": 400.0, "end": 402.0, "text": "thanks"},
+        {"start": 900.0, "end": 902.0, "text": "bye"},
+    ]
+    anchors, _probes = speech_anchor_cuts_with_probes(
+        segments,
+        duration_sec=1000.0,
+        energy_cuts=[],
+        silence_cuts=[643.4],
+    )
+    assert any(abs(a - 643.4) < 0.01 for a in anchors)

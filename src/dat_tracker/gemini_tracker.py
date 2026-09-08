@@ -350,12 +350,13 @@ def speech_anchor_cuts_with_probes(
     sparse_mid_anchor_threshold: int = 3,
     sparse_probe_step_sec: float = 60.0,
     energy_cuts: list[float] | None = None,
+    silence_cuts: list[float] | None = None,
 ) -> tuple[list[float], list[float]]:
     """Speech-island starts as anchors; gap probes for long music spans.
 
     Also folds in onsets of overlong Whisper spans (common song-length
     hallucinations). When mid-show anchors are sparse, tighten probe spacing.
-    Optional energy peaks fill long gaps that lack speech.
+    Optional energy peaks and silence ends fill gaps that lack speech.
 
     Returns (anchor_cuts including endpoints, probe_centers only).
     """
@@ -385,6 +386,13 @@ def speech_anchor_cuts_with_probes(
         anchors = merge_energy_into_anchors(
             anchors=anchors,
             energy_cuts=energy_cuts,
+            min_gap_sec=90.0,
+            near_anchor_sec=30.0,
+        )
+    if silence_cuts:
+        anchors = merge_energy_into_anchors(
+            anchors=anchors,
+            energy_cuts=silence_cuts,
             min_gap_sec=90.0,
             near_anchor_sec=30.0,
         )

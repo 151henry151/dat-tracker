@@ -32,6 +32,19 @@ def silence_midpoints(regions: list[tuple[float, float]]) -> list[float]:
     return [(start + end) / 2.0 for start, end in regions]
 
 
+def silence_end_candidates(
+    regions: list[tuple[float, float]],
+    *,
+    min_silence_sec: float = 0.8,
+) -> list[float]:
+    """Silence *ends* as cut candidates (start of next audible material)."""
+    return sorted(
+        float(end)
+        for start, end in regions
+        if (end - start) >= min_silence_sec
+    )
+
+
 def propose_cuts_from_silences(
     *,
     silence_regions: list[tuple[float, float]],
