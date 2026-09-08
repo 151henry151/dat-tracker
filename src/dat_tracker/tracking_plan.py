@@ -22,6 +22,20 @@ def validate_tracking_plan(plan: dict[str, Any]) -> None:
     Draft202012Validator(load_tracking_plan_schema()).validate(plan)
 
 
+def ensure_plan_tracks(plan: dict[str, Any]) -> dict[str, Any]:
+    """Fill tracks from cuts_sec when the model returns an empty tracks array."""
+    if plan.get("tracks"):
+        return plan
+    from dat_tracker.refine_cuts import rebuild_tracks_from_cuts
+
+    cuts = [float(c) for c in (plan.get("cuts_sec") or [])]
+    return rebuild_tracks_from_cuts(
+        plan,
+        cuts,
+        note="Materialized tracks from cuts_sec (model returned empty tracks).",
+    )
+
+
 def _overlap_sec(a0: float, a1: float, b0: float, b1: float) -> float:
     return max(0.0, min(a1, b1) - max(a0, b0))
 

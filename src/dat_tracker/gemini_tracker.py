@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +16,7 @@ from dat_tracker.listen_clips import (
     parse_model_json,
     tracking_listen_prompt,
 )
-from dat_tracker.tracking_plan import validate_tracking_plan
+from dat_tracker.tracking_plan import ensure_plan_tracks, validate_tracking_plan
 
 
 def resolve_gemini_api_key(*, project_root: Path | None = None) -> str:
@@ -122,9 +124,9 @@ def request_tracking_plan_from_clips(
             )
         )
 
-    response = None
     last_error: Exception | None = None
     for attempt in range(max_retries):
+        text = ""
         try:
             response = client.models.generate_content(
                 model=model_name,
@@ -137,15 +139,31 @@ def request_tracking_plan_from_clips(
                 config=types.GenerateContentConfig(
                     temperature=0.2,
                     response_mime_type="application/json",
+                    max_output_tokens=16384,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
                         disable=True
                     ),
                 ),
             )
-            break
+            text = _response_text(response)
+            if not text.strip():
+                raise ValueError("Empty Gemini response text")
+            plan = parse_model_json(text)
+            plan["show_id"] = show_id
+            plan["source_path"] = source_path
+            plan["schema_version"] = plan.get("schema_version") or "1.0.0"
+            plan["duration_sec"] = float(duration_sec)
+            if "notes" not in plan:
+                plan["notes"] = []
+            if "needs_review" not in plan:
+                plan["needs_review"] = False
+            if "overall_confidence" not in plan:
+                plan["overall_confidence"] = 0.5
+            plan = ensure_plan_tracks(plan)
+            validate_tracking_plan(plan)
+            return plan
         except (ServerError, ClientError) as exc:
             last_error = exc
-            # 503 capacity spikes and 429 rate limits are common; back off and retry.
             if attempt + 1 >= max_retries:
                 raise
             status = getattr(exc, "code", None) or getattr(exc, "status_code", None)
@@ -153,34 +171,15 @@ def request_tracking_plan_from_clips(
                 time.sleep(min(60.0, 15.0 * (attempt + 1)))
             else:
                 time.sleep(2 ** attempt)
-    if response is None:
-        assert last_error is not None
-        raise last_error
-
-    text = getattr(response, "text", None) or ""
-    if not text and getattr(response, "candidates", None):
-        chunks: list[str] = []
-        for cand in response.candidates or []:
-            content = getattr(cand, "content", None)
-            for part in getattr(content, "parts", None) or []:
-                t = getattr(part, "text", None)
-                if t:
-                    chunks.append(t)
-        text = "\n".join(chunks)
-
-    plan = parse_model_json(text)
-    plan["show_id"] = show_id
-    plan["source_path"] = source_path
-    plan["schema_version"] = plan.get("schema_version") or "1.0.0"
-    plan["duration_sec"] = float(duration_sec)
-    if "notes" not in plan:
-        plan["notes"] = []
-    if "needs_review" not in plan:
-        plan["needs_review"] = False
-    if "overall_confidence" not in plan:
-        plan["overall_confidence"] = 0.5
-    validate_tracking_plan(plan)
-    return plan
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            last_error = exc
+            bad = work_dir / f"bad_listen_response_{attempt}.txt"
+            bad.write_text(text or repr(exc), encoding="utf-8")
+            if attempt + 1 >= max_retries:
+                raise
+            time.sleep(2 ** attempt)
+    assert last_error is not None
+    raise last_error
 
 
 def _response_text(response: Any) -> str:
@@ -218,6 +217,7 @@ def _generate_content_with_retries(
                 config=types.GenerateContentConfig(
                     temperature=0.2,
                     response_mime_type="application/json",
+                    max_output_tokens=16384,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
                         disable=True
                     ),

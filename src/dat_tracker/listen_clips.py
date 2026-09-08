@@ -206,5 +206,7 @@ Rules:
 - Prefer fewer correct cuts over keeping every proposal.
 - Drop false positives aggressively.
 - You may add a cut near a gap_probe if the audio clearly shows a missed boundary.
+- Prefer "tracks": [] and put ACCEPT/REJECT/SNAP decisions in notes to keep JSON small;
+  cuts_sec is required. Titles may be null/omitted when tracks is empty.
 - track_type is one of: song, banter, tuning, intro, encore_break, unknown.
 """

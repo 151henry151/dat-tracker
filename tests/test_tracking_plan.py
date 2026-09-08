@@ -108,3 +108,25 @@ def test_build_draft_tracking_plan_labels_speech_heavy_as_banter():
     t2 = plan["tracks"][1]
     assert t2["start_sec"] == 212.0
     assert "speech_island" in t2["evidence"] or t2["track_type"] == "banter"
+
+
+def test_ensure_plan_tracks_materializes_empty_tracks_for_schema():
+    from dat_tracker.tracking_plan import ensure_plan_tracks
+
+    plan = {
+        "schema_version": "1.0.0",
+        "show_id": "x",
+        "source_path": "y.flac",
+        "duration_sec": 100.0,
+        "cuts_sec": [0.0, 40.0, 100.0],
+        "tracks": [],
+        "overall_confidence": 0.5,
+        "needs_review": False,
+        "notes": [],
+    }
+    with pytest.raises(Exception):
+        validate_tracking_plan(plan)
+    filled = ensure_plan_tracks(plan)
+    validate_tracking_plan(filled)
+    assert len(filled["tracks"]) == 2
+    assert filled["tracks"][0]["end_sec"] == 40.0

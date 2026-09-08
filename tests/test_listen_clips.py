@@ -101,6 +101,11 @@ def test_parse_model_json_accepts_fenced_block():
     assert parse_model_json(raw) == {"cuts_sec": [0.0, 10.0], "overall_confidence": 0.5}
 
 
+def test_parse_model_json_raises_on_truncated_object():
+    with pytest.raises((json.JSONDecodeError, ValueError)):
+        parse_model_json('{"cuts_sec": [0.0, 10.0], "tracks": [{"index": 1')
+
+
 def test_load_dotenv_file_reads_key(tmp_path: Path):
     env = tmp_path / ".env"
     env.write_text("GEMINI_API_KEY=test-secret\nDAT_TRACKER_LLM_MODEL=gemini-2.5-flash\n")
