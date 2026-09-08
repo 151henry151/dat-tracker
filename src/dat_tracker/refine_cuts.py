@@ -100,6 +100,15 @@ def merge_near_duplicate_cuts(
     return out
 
 
+def adaptive_min_separation_sec(duration_sec: float) -> float:
+    """Wider cut spacing on long shows to curb mid-song over-segmentation."""
+    if duration_sec >= 3000.0:
+        return 90.0
+    if duration_sec >= 1200.0:
+        return 45.0
+    return 20.0
+
+
 def refine_listen_prompt(
     *,
     show_id: str,

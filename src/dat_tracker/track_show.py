@@ -16,6 +16,7 @@ from dat_tracker.gemini_tracker import (
 )
 from dat_tracker.package import package_show_from_plan
 from dat_tracker.refine_cuts import (
+    adaptive_min_separation_sec,
     merge_near_duplicate_cuts,
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
@@ -161,15 +162,19 @@ def run_track_show(
             evidence_by_cut=evidence,
             note="Snapped mid cuts forward to last speech onset in look-ahead window.",
         )
+    dedupe_sep = adaptive_min_separation_sec(duration)
     deduped = merge_near_duplicate_cuts(
         list(plan.get("cuts_sec") or []),
-        min_separation_sec=20.0,
+        min_separation_sec=dedupe_sep,
     )
     if deduped != list(plan.get("cuts_sec") or []):
         plan = rebuild_tracks_from_cuts(
             plan,
             deduped,
-            note="Merged near-duplicate cuts (kept later time in each cluster).",
+            note=(
+                f"Merged near-duplicate cuts with adaptive min separation "
+                f"{dedupe_sep:.0f}s (kept later time in each cluster)."
+            ),
         )
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
 
