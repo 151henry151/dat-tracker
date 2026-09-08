@@ -17,9 +17,12 @@ from dat_tracker.gemini_tracker import (
 from dat_tracker.package import package_show_from_plan
 from dat_tracker.refine_cuts import (
     adaptive_min_separation_sec,
+    adaptive_speech_snap_look_ahead_sec,
+    ensure_endpoint_cuts,
     merge_near_duplicate_cuts,
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
+    thin_listen_centers,
 )
 from dat_tracker.speech import (
     filter_plausible_speech_segments,
@@ -93,7 +96,7 @@ def run_track_show(
     refine: bool = False,
     refine_half_window_sec: float = 20.0,
     speech_snap: bool = True,
-    speech_snap_look_ahead_sec: float = 45.0,
+    speech_snap_look_ahead_sec: float | None = None,
 ) -> dict[str, Any]:
     """Run sparse Gemini tracking and optionally export an etree-style package."""
     root = project_root or Path.cwd()
@@ -116,6 +119,16 @@ def run_track_show(
         probe_step_sec=probe_step_sec,
         energy_cuts=energy_cuts,
     )
+    anchors, probes = thin_listen_centers(
+        anchors=anchors,
+        probes=probes,
+        duration_sec=duration,
+    )
+    snap_look_ahead = (
+        speech_snap_look_ahead_sec
+        if speech_snap_look_ahead_sec is not None
+        else adaptive_speech_snap_look_ahead_sec(duration)
+    )
 
     try:
         rel_source = str(source_audio.resolve().relative_to(root.resolve()))
@@ -133,6 +146,11 @@ def run_track_show(
         half_window_sec=half_window_sec,
         project_root=root,
     )
+    plan = rebuild_tracks_from_cuts(
+        plan,
+        ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
+        note="Normalized plan endpoints to 0 and duration.",
+    )
     if refine:
         plan = refine_tracking_plan_cuts(
             plan,
@@ -149,7 +167,7 @@ def run_track_show(
             list(plan.get("cuts_sec") or []),
             speech_islands=islands,
             duration_sec=duration,
-            look_ahead_sec=speech_snap_look_ahead_sec,
+            look_ahead_sec=snap_look_ahead,
         )
         evidence = {
             c: [f"SPEECH_SNAP_FORWARD@{c}"]

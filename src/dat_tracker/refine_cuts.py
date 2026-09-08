@@ -109,6 +109,92 @@ def adaptive_min_separation_sec(duration_sec: float) -> float:
     return 20.0
 
 
+def adaptive_speech_snap_look_ahead_sec(duration_sec: float) -> float:
+    """Longer forward speech-snap windows on long shows (early-cut bias)."""
+    if duration_sec >= 2000.0:
+        return 90.0
+    return 45.0
+
+
+def ensure_endpoint_cuts(cuts_sec: list[float], *, duration_sec: float) -> list[float]:
+    """Guarantee cuts start at 0 and end at duration_sec."""
+    ordered = sorted(float(c) for c in cuts_sec)
+    if not ordered or ordered[0] > 0.05:
+        ordered = [0.0, *ordered]
+    if abs(ordered[-1] - duration_sec) > 0.05:
+        ordered.append(float(duration_sec))
+    # Dedupe exact-ish duplicates.
+    out = [ordered[0]]
+    for c in ordered[1:]:
+        if c - out[-1] > 0.05:
+            out.append(c)
+    return out
+
+
+def thin_listen_centers(
+    *,
+    anchors: list[float],
+    probes: list[float],
+    duration_sec: float,
+    target_mid_cuts: int | None = None,
+) -> tuple[list[float], list[float]]:
+    """Reduce dense speech anchors/probes before Gemini listens.
+
+    Long bluegrass sets often have many banter islands; sending all of them as
+    candidates causes over-segmentation. Keep endpoints, thin mid anchors to
+    about one per ~4 minutes, and only keep probes that still sit in large gaps.
+    """
+    if target_mid_cuts is None:
+        target_mid_cuts = max(4, int(round(duration_sec / 240.0)))
+
+    ordered = sorted({float(a) for a in anchors})
+    if not ordered or ordered[0] > 0.05:
+        ordered = [0.0, *ordered]
+    if abs(ordered[-1] - duration_sec) > 0.05:
+        ordered.append(float(duration_sec))
+
+    mid = [a for a in ordered if 0.05 < a < duration_sec - 0.05]
+    # Only thin when clearly over-dense vs ~4-minute song spacing.
+    if len(mid) > int(target_mid_cuts * 1.5):
+        while len(mid) > target_mid_cuts:
+            extended = [0.0, *mid, float(duration_sec)]
+            best_drop = 0
+            best_gap = float("inf")
+            for j in range(len(extended) - 1):
+                gap = extended[j + 1] - extended[j]
+                if gap >= best_gap:
+                    continue
+                best_gap = gap
+                if j == 0:
+                    best_drop = 0
+                elif j + 1 == len(extended) - 1:
+                    best_drop = len(mid) - 1
+                else:
+                    best_drop = j - 1
+            mid.pop(best_drop)
+
+    thinned_anchors = [0.0, *mid, float(duration_sec)]
+    max_probes = max(2, target_mid_cuts)
+    kept_probes: list[float] = []
+    for left, right in zip(thinned_anchors, thinned_anchors[1:], strict=False):
+        if right - left < 240.0:
+            continue
+        in_gap = [
+            float(p)
+            for p in probes
+            if left + 20.0 < float(p) < right - 20.0
+        ]
+        in_gap.sort(key=lambda p: abs(p - (left + right) / 2.0))
+        for p in in_gap[:2]:
+            if not any(abs(p - q) <= 5.0 for q in kept_probes):
+                kept_probes.append(p)
+            if len(kept_probes) >= max_probes:
+                break
+        if len(kept_probes) >= max_probes:
+            break
+    return thinned_anchors, sorted(kept_probes)
+
+
 def refine_listen_prompt(
     *,
     show_id: str,
