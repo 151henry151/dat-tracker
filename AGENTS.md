@@ -7,4 +7,5 @@
 5. Large media belongs under `data/` (gitignored). Do not commit FLACs or the Dropbox dump.
 6. Calibrate against Jon King’s existing Archive.org uploads before uploading new competing items for the same shows.
 7. Prefer automatic LLM tracking; do not add a required human waveform review UI. Treat weak calibration metrics as a pipeline bug to fix.
-8. When drafting Reddit/email text for the community, leave posting to Henry unless he explicitly asks you to send it.
+8. Do not tune only on Live Bluegrass / Jon’s 15 packages—use held-out external tracked DAT calibration (see PLAN.md tiers) to avoid overfitting.
+9. When drafting Reddit/email text for the community, leave posting to Henry unless he explicitly asks you to send it.

@@ -3,6 +3,8 @@ data/raw/**
 !data/raw/.gitkeep
 data/ground_truth/**
 !data/ground_truth/.gitkeep
+data/calibration/**
+!data/calibration/.gitkeep
 data/work/**
 !data/work/.gitkeep
 data/out/**

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename project and Python package from `bluegrass-dat-tracker` / `bluegrass_dat_tracker` to `dat-tracker` / `dat_tracker`.
 - Change Phase 2 from human-in-the-loop waveform review to LLM-powered automatic tracking with calibration-gated release and exceptional-only human spot-checks.
 - Parse Live Bluegrass dump filenames with leading `YYMMDD` / `YYYYMMDD` dates and known artist abbrevs into catalog rows; coalesce multipart raw FLACs.
+- Expand calibration strategy to multi-corpus tiers (Live Bluegrass pairs, external tracked DAT packages, broader RAG/training corpus) so evaluation does not overfit one dump.
 
 ### Added
 

@@ -28,7 +28,7 @@ First proving ground: the Live Bluegrass Dave W / Brian H dump. The same tooling
 
 ## Status
 
-Phase 1 ingest largely done: Dropbox zip complete, 15 ground-truth IA items on disk, catalog rebuilt (~155 shows; 14/15 calibration raw paths linked). Phase 2 started: ground-truth boundary auto-diff helpers + first calibration raw extracted (`jcb2002-08-02`). Next: signal extractors + LLM tracking loop. See **[PLAN.md](PLAN.md)**.
+Phase 1 ingest largely done; Phase 2 underway. Calibration is **multi-corpus** (Jon Live Bluegrass + external tracked DAT packages + later broader training/RAG)—see PLAN.md and `docs/calibration-corpus.md`. Next: curate a small Tier B set and continue signal/LLM tracking work.
 
 ## Version
 

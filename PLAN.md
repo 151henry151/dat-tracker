@@ -6,9 +6,11 @@
 
 ## Overview
 
-Download the full ~100GB Live Bluegrass Dropbox dump, build an **LLM-powered automatic tracking pipeline** calibrated against Jon King’s already-uploaded Archive.org shows, then track and package every remaining show to etree/LMA standards for upload under Henry’s Archive.org account.
+Download the full ~100GB Live Bluegrass Dropbox dump, build an **LLM-powered automatic tracking pipeline**, then track and package every remaining show to etree/LMA standards for upload under Henry’s Archive.org account.
 
-**Quality bar (locked):** packages for new shows must match the style and accuracy of Jon’s calibration set closely enough that **human waveform review is not part of the happy path**. Prefer **no human intervention**; allow only **extremely minimal** review when automated confidence or calibration metrics fail a show (flag for optional spot-check, do not require a waveform UI workflow).
+**Calibration must not overfit Live Bluegrass alone (locked).** Jon King’s already-uploaded Dave Ward / Brian H items are the *primary* in-domain targets (same transfer chain and style), but the tracker must also be measured against **additional high-quality tracked DAT packages** from the same community and from other careful etree/LMA work—so prompts, tools, and thresholds generalize. Prefer small downloadable items. Longer term, treat a **large corpus of already-tracked DAT→FLAC packages on Archive.org** as training/RAG material so the LLM improves at the same job humans already did well.
+
+**Quality bar (locked):** packages for new shows must match the style and accuracy of the calibration sets closely enough that **human waveform review is not part of the happy path**. Prefer **no human intervention**; allow only **extremely minimal** review when automated confidence or calibration metrics fail a show (flag for optional spot-check, do not require a waveform UI workflow).
 
 **Second goal (locked):** once this Live Bluegrass run is calibrated and we can present finished tracked packages with confidence, **package the application and workflow** so others can apply the same method to **other DAT dumps** (different tapers, transfers, collections). Live Bluegrass is the proving ground and first product; the reusable tool is an explicit deliverable, not an afterthought.
 
@@ -56,9 +58,10 @@ New uploads should keep Cate Crowe as transferer and credit the actual tracker/u
 flowchart LR
   dropbox[Dropbox ~100GB] --> local[Local raw FLACs]
   local --> signals[Audio signals + ASR snippets]
+  corpus[Multi-corpus calibration + RAG examples] --> llm
   signals --> llm[LLM decide boundaries labels titles]
   llm --> package[Name tag txt ffp]
-  package --> validate[Auto-diff vs Jon IA uploads]
+  package --> validate[Auto-diff vs held-out calibration]
   validate -->|pass| upload[ia upload etree or taperssection]
   validate -->|fail| flag[Flag rare spot-check]
 ```
@@ -68,20 +71,22 @@ flowchart LR
 - Project lives at **`/home/henry/dev/dat-tracker`** (this repo; package name `dat-tracker`).
 - Download **entire** Dropbox dump (~100 GB; host has ample free space).
 - Track **all** shows; do **not** wait on coordination first.
-- Treat Jon’s uploads as **calibration targets**: if our splits/names/metadata match those shows, proceed to package the rest for Henry’s Archive.org account.
+- Treat Jon’s Dave Ward / Brian H uploads as **primary in-domain calibration**, but **do not** tune solely against them—require held-out metrics on **additional external tracked DAT packages** so the system does not overfit one dump’s quirks (tape gaps, festival multi-artist files, naming).
 - **Automation first (locked):** the LLM (with audio/analysis tools) drives boundary placement, track-type labels, segue marks, titles/setlist, and packaging. Do **not** build a required human waveform review UI. Human involvement is reserved for exceptional failures (metrics/confidence below threshold), ideally none for well-behaved shows.
+- **Corpus-driven improvement (locked):** build toward using many already-tracked Archive.org DAT shows as (1) few-shot / RAG style examples, (2) synthetic re-split benchmarks (concatenate published tracks → recover cuts), and later (3) optional fine-tuning / preference data—not only the 15 Live Bluegrass items.
 - Use **semantic versioning** and a **Keep a Changelog** changelog; commit messages and changelog entries in the imperative.
 - **Reusable product:** design the pipeline so Live Bluegrass-specific facts (Dropbox URL, Dave/Brian collection tags, Cate/Jon credit defaults, this dump’s folder layout) live in **config / catalog data**, not hard-wired into core tracking, packaging, or upload code. After a successful first batch, ship installable tooling + docs so another operator can point it at a different untrimmed DAT→FLAC dump and get the same automatic, calibration-gated flow.
 
 ## Directory layout
 
 - `data/raw/` — Dropbox dump
-- `data/ground_truth/` — downloaded Jon IA items (audio + txt + ffp)
+- `data/ground_truth/` — primary Live Bluegrass Jon IA items (audio + txt + ffp)
+- `data/calibration/` — external / held-out tracked packages + synthetic re-split work (keep small; gitignored media)
 - `data/work/` — per-show working dirs
 - `data/out/` — finished etree-style packages ready to upload
 - `catalog/` — inventory CSV/JSON (path, artist, date, venue, collection, status, IA id if any)
 - `src/` — pipeline code
-- `docs/` — extra notes, upload checklists
+- `docs/` — extra notes, upload checklists, calibration corpus notes
 - `PLAN.md` — this file
 - `CHANGELOG.md`, `pyproject.toml` (or equivalent) — add in Phase 0 scaffold
 
@@ -101,7 +106,7 @@ flowchart LR
 
 ## Phase 2 — LLM-powered automatic tracking
 
-**Goal:** End-to-end automatic tracking that **matches Jon’s calibration packages** (boundaries, track count/types, titles, txt/ffp/tags) well enough to ship without human waveform review. Silence detection alone is insufficient; the LLM must reason over rich audio-derived evidence.
+**Goal:** End-to-end automatic tracking that **matches high-quality etree-style packages** (boundaries, track count/types, titles, txt/ffp/tags) well enough to ship without human waveform review. Silence detection alone is insufficient; the LLM must reason over rich audio-derived evidence. Primary in-domain targets are Jon’s Live Bluegrass packages; **shipping gate also requires solid held-out scores on an external calibration slice**.
 
 Pipeline per raw full-show FLAC:
 
@@ -115,18 +120,46 @@ Pipeline per raw full-show FLAC:
    - Choose cut points (sample-accurate or frame-aligned then snapped).
    - Label each track (song / banter / tuning / intro / encore break).
    - Mark segues (`>`).
-   - Propose titles and setlist structure in Jon’s style, using ASR, fingerprints, folder/J-card context, and calibration examples.
+   - Propose titles and setlist structure in Jon’s / etree style, using ASR, fingerprints, folder/J-card context, and **few-shot examples drawn from the multi-corpus calibration set** (not only Live Bluegrass).
    - Emit a structured tracking plan (JSON or equivalent) with per-boundary confidence.
 4. **Export cuts** losslessly (`flac`/`sox`/`ffmpeg` sample-accurate) into etree filenames from the LLM plan — no manual nudge step.
 5. Emit **show.txt** (Jon’s template: artist, date, venue, source, transfer, “Tracked & Uploaded by: …”, setlist, notes about Dave/Brian collections) + **fingerprint.ffp.txt** + Vorbis tags on each FLAC.
 6. **Exception path only:** if confidence or post-export checks fail thresholds, mark the catalog row `needs_review` and optionally dump a lightweight diagnostic (boundaries + spectrogram/energy plot). Do **not** require a full interactive waveform editor for normal operation.
 
-Calibration loop on the ~15 ground-truth shows (gate before batching the rest):
+### Calibration tiers (anti-overfit)
 
-- Run full automatic pipeline → compare to Jon’s track boundaries (align via cross-correlation / duration matching), track types, titles, and packaged txt.
-- Metrics: boundary F1 within ±N ms, track-count match, title similarity, set/structure agreement.
-- Hold out a subset; tune prompts, tool thresholds, and post-rules until **held-out** agreement is strong enough to treat as shippable without human cuts.
+| Tier | What | Role |
+|------|------|------|
+| **A — In-domain pairs** | Live Bluegrass raw continuous FLACs + Jon’s 15 IA packages (Cate Crowe transfer / Jon King track) | Primary: true raw→tracked evaluation; same lineage as production |
+| **B — Style siblings** | Other careful bluegrass/jam **DAT→FLAC** etree/taperssection packages (prefer small &lt;~500–700 MB; same community conventions: banter as tracks, `>`, ffp, info txt). Include more Jon-tracked items when useful, but also **other trackers** so we do not memorize one person’s quirks | Held-out packaging + synthetic re-split |
+| **C — Broad corpus** | Larger archive of already-tracked DAT shows (metadata + txt + optional audio) for RAG / later fine-tuning | Scale: teach general tracking judgment |
+
+**Synthetic re-split (Tier B/C when no raw dump exists):** losslessly concatenate published track FLACs into one continuous file, hide the cut list, run the tracker, score recovered boundaries against the known cuts. This is slightly easier than real untrimmed tape (joins are cleaner), but it is the practical way to get **many** labeled examples without original continuous masters. Prefer Tier A whenever raw+tracked pairs exist.
+
+Calibration loop:
+
+- Split Tier A and Tier B into **train/few-shot** vs **held-out** (never tune thresholds only on the show you are scoring).
+- Metrics: boundary F1 within ±N ms, track-count match, title similarity, set/structure agreement, show.txt field completeness.
+- Gate: held-out Tier A strong **and** held-out Tier B acceptable before batching the rest of Live Bluegrass.
 - Only then batch-process remaining shows; auto-accept packages that pass the same confidence/checklist gates.
+
+### Phase 2a — External calibration corpus (do early, in parallel)
+
+1. Curate a shortlist of **small** IA items (target roughly a handful to a few dozen shows, disk budget on the order of tens of GB, not another 100 GB): bluegrass/adjacent, DAT lineage, complete FLAC+txt(+ffp) packages, reputable tracking.
+2. Prefer: same transfer/tracker community when available; otherwise other meticulous etree DAT SBDs with clear info files. Avoid using Live Bluegrass held-out shows as the *only* external set.
+3. Download into `data/calibration/` with a manifest (identifier, size, why included, tier, train vs holdout).
+4. Build synthetic continuous FLACs + known cut lists for re-split benchmarks.
+5. Wire the same auto-diff metrics used for Tier A.
+
+Verified so far: Cate Crowe + Jon King on IA currently appear to be **exactly the 15** Dave Ward / Brian H items (~10 GB)—so external diversity **must** come from other trackers/collections, not more Cate/Jon bluegrass. Jon’s other uploads are mostly modern AUD/CM4 tapers (different problem). Candidate seed queries: etree/taperssection + bluegrass/adjacent + `DAT` lineage + Flac + item size capped (e.g. 80–450 MB), e.g. small Del McCoury / Sam Bush / Leftover Salmon / YMSB DAT packages—curate manually for info-file quality before bulk download.
+
+### Phase 2b — Scale toward “train the tracker” (after 2/2a work)
+
+Do not block Live Bluegrass shipping on full fine-tunes, but design data collection so we can:
+
+1. Index many show.txt + tracklists + (optional) boundary times from IA DAT packages as **RAG / few-shot memory**.
+2. Grow synthetic re-split datasets for offline eval and, later, supervised or preference training of a specialist model.
+3. Keep Live Bluegrass production config separate from the generic trained policy.
 
 ## Phase 3 — Package and upload standards
 
@@ -160,10 +193,12 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 
 1. Scaffold project + changelog/version (Phase 0).
 2. Start full Dropbox download; while it runs, pull ground-truth IA items + write catalog schema and Jon-template txt generator.
-3. Build signal extractors + offline auto-diff against one known show (e.g. `jcb2002-08-02`).
-4. Wire LLM decision loop (boundaries, labels, titles) and iterate until calibration metrics pass on held-out ground-truth shows.
-5. Batch remaining shows with confidence gates; upload when packages pass checklist (spot-check only failures).
-6. Package CLI/docs/config for reuse on other DAT dumps (Phase 5); mention it in the community write-up.
+3. Build signal extractors + offline auto-diff against one known show (e.g. `jcb2002-08-02`); account for multi-artist night tapes in one raw FLAC.
+4. **In parallel:** curate + download a small Tier B external calibration set; add synthetic re-split harness.
+5. Wire LLM decision loop (boundaries, labels, titles) with few-shot/RAG from the multi-corpus set; iterate until held-out Tier A **and** Tier B metrics pass.
+6. Batch remaining Live Bluegrass shows with confidence gates; upload when packages pass checklist (spot-check only failures).
+7. Grow Tier C indexing / optional fine-tune data (Phase 2b) without blocking uploads.
+8. Package CLI/docs/config for reuse on other DAT dumps (Phase 5); mention it in the community write-up.
 
 ## Risks / notes
 
@@ -171,7 +206,10 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 - Some bands lack LMA permission → `taperssection` path is intentional, not a failure.
 - Live bluegrass banter density means silence-only splitters will fail calibration; **LLM + classifier/ASR evidence** is required — not a human review crutch.
 - Achieving Jon-level agreement with zero intervention is hard; treat weak metrics as a pipeline bug to fix, not as a reason to add a waveform UI.
-- Disk: `/home/henry` volume had ~380 GB free when this project was created (verify again before download).
+- **Overfitting:** tuning only on the 15 Jon packages (or one night like `020802_JCB_RR`) will look good and fail elsewhere—external Tier B held-out is mandatory.
+- **Raw+tracked pairs are rare**; Cate/Jon bluegrass on IA is currently just those 15 items. Synthetic re-split is necessary for scale; always re-check on true Tier A raws before shipping.
+- Some raw dump files contain **multiple artists/sets** (e.g. Riverbend 2002-08-02 PRTR + JCB in one FLAC)—alignment/segmentation is part of tracking, not a catalog error.
+- Disk: `/home/henry` volume had ~380 GB free when this project was created (verify again before download); keep external calibration downloads size-capped.
 - Reuse packaging too early risks baking in Live Bluegrass assumptions; prefer proving calibration first, then extracting config (Phase 5). While building Phases 1–3, still **avoid hardcoding** collection names and credit strings in core modules when a config/parameter will do.
 - LLM/ASR cost and latency will matter at full-dump scale; cache features and avoid re-decoding.
 
@@ -181,9 +219,11 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 - [x] Download full ~100GB Dropbox dump into `data/raw/` with resume
 - [x] Download all Dave Ward / Brian H IA items; mark catalog `already_uploaded` vs `todo`
 - [x] Build catalog from zip listing + IA (YYMMDD dump names); link calibration raw paths
-- [ ] Implement signal extractors + auto-diff against Jon ground-truth FLACs
-- [ ] Implement LLM tracking loop (boundaries, labels, segues, titles) with confidence gates
-- [ ] Calibrate until held-out ground-truth match is shippable without human cuts
+- [ ] Curate + download small Tier B external calibration set; synthetic re-split harness
+- [ ] Implement signal extractors + auto-diff against Jon ground-truth FLACs (incl. multi-show raw alignment)
+- [ ] Implement LLM tracking loop (boundaries, labels, segues, titles) with multi-corpus few-shot/RAG
+- [ ] Calibrate until held-out Tier A **and** Tier B match is shippable without human cuts
 - [ ] Export etree-named FLACs, Jon-style txt, ffp, tags; batch remaining shows
 - [ ] Track remaining shows; upload new items via `ia` CLI to etree or taperssection with correct credits
+- [ ] Phase 2b: index broader DAT tracked corpus for RAG / future training
 - [ ] Phase 5: package installable automatic workflow + docs so others can run it on other DAT dumps
