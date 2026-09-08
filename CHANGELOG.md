@@ -41,7 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retry Gemini listen when the model returns truncated or invalid JSON; raise max output tokens; prefer empty tracks arrays in the listen prompt.
 - Materialize tracks from cuts_sec when Gemini returns an empty tracks array.
 - Promote silence-end times in medium gaps to listen anchors.
-- Snap mid cuts to the nearest silence end within a short radius after Gemini listen.
 - Snap clearly-late mid cuts (≥20 s) back onto a recent silence end after Gemini listen.
 - Lock numeric held-out calibration gates (Tier B mean F1 ≥ 0.85 @ ±15s; Tier A mean F1 ≥ 0.80) before Live Bluegrass batching.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
