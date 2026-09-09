@@ -260,7 +260,12 @@ def run_track_show(
                 source_audio=source_audio,
                 work_dir=paths["work_dir"] / "gemini_gapfill",
                 probe_centers_sec=gap_probes,
-                half_window_sec=max(12.0, half_window_sec),
+                # Gap-fill probes are often geometric estimates rather than a
+                # precise candidate (see overlong_gap_probe_centers' proximity
+                # fallback); a narrow ±12s clip missed real train boundaries
+                # that landed 35-65s from the probe center. Widen the clip so
+                # a plausible placement error still falls inside it.
+                half_window_sec=max(45.0, half_window_sec),
                 project_root=root,
                 model=escalate_model,
             )
@@ -306,7 +311,13 @@ def run_track_show(
                     source_audio=source_audio,
                     work_dir=paths["work_dir"] / "gemini_gapfill",
                     probe_centers_sec=gap_probes,
-                    half_window_sec=max(12.0, half_window_sec),
+                    # Gap-fill probes are often geometric estimates rather
+                    # than a precise candidate (see overlong_gap_probe_centers'
+                    # proximity fallback); a narrow ±12s clip missed real
+                    # train boundaries that landed 35-65s from the probe
+                    # center. Widen the clip so a plausible placement error
+                    # still falls inside it.
+                    half_window_sec=max(45.0, half_window_sec),
                     project_root=root,
                 )
                 plan = rebuild_tracks_from_cuts(

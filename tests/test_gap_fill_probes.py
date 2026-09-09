@@ -20,6 +20,27 @@ def test_overlong_gap_probe_centers_picks_candidates_inside_long_gaps():
     assert all(45.0 < p < 2555.0 for p in probes)
 
 
+def test_overlong_gap_probe_centers_falls_back_to_geometric_target_when_candidates_far():
+    # Real train failure (ymsb2007-02-24.flac16, lke2006-11-10.early): the
+    # true missed boundary sits near the geometric midpoint of a long gap,
+    # but the only classical candidate anywhere in range is far from it.
+    # Snapping to that distant "nearest available" candidate put the probe
+    # clip nowhere near the real transition and Gemini never got a chance to
+    # hear it. Prefer the untethered geometric target over a candidate that
+    # is not actually close to it.
+    cuts = [0.0, 100.0, 600.0, 700.0]
+    candidates = [160.0]  # 190s from the gap's geometric target (350.0)
+    probes = overlong_gap_probe_centers(
+        cuts,
+        duration_sec=700.0,
+        candidate_centers=candidates,
+        max_seg_sec=450.0,
+        min_edge_sec=45.0,
+        max_probes_per_gap=1,
+    )
+    assert probes == [350.0]
+
+
 def test_overlong_gap_probe_centers_noop_when_segments_short():
     cuts = [0.0, 200.0, 400.0, 600.0]
     probes = overlong_gap_probe_centers(

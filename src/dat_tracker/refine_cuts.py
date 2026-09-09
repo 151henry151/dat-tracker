@@ -214,7 +214,12 @@ def merge_near_duplicate_cuts(
     """Collapse cut clusters closer than min_separation_sec, keeping the later time.
 
     Preferring the later cut matches etree “start of next track” packaging when
-    Gemini emits both song-end and banter-start a few seconds apart.
+    Gemini emits both song-end and banter-start a few seconds apart. The
+    mandatory show-start cut (0.0) is the one exception: it must never be
+    overwritten by a nearby spurious early cut (e.g. an opening cheer/banter
+    accept a few seconds after 0.0), since a later ensure_endpoint_cuts() call
+    would just re-insert 0.0 and silently undo the merge, leaving the spurious
+    cut in place. Drop the near-duplicate instead of shifting the start.
     """
     ordered = sorted(float(c) for c in cuts_sec)
     if not ordered:
@@ -222,6 +227,8 @@ def merge_near_duplicate_cuts(
     out = [ordered[0]]
     for cut in ordered[1:]:
         if cut - out[-1] < min_separation_sec:
+            if out[-1] <= 0.05:
+                continue
             out[-1] = cut
         else:
             out.append(cut)
@@ -313,11 +320,18 @@ def overlong_gap_probe_centers(
     max_seg_sec: float = 420.0,
     min_edge_sec: float = 45.0,
     max_probes_per_gap: int = 3,
+    max_candidate_offset_sec: float = 90.0,
 ) -> list[float]:
     """Pick listen centers inside track segments longer than max_seg_sec.
 
     Used for a second Gemini INSERT pass when the first plan under-segments.
-    Prefers existing speech/energy candidates nearest to evenly spaced targets.
+    Prefers an existing speech/energy candidate near each evenly spaced
+    target, but only when it is actually close (within
+    max_candidate_offset_sec) — snapping to the "nearest available" candidate
+    even when it sits far from the target missed real train boundaries
+    entirely (the classical proposal pool had nothing nearby, so the probe
+    clip never covered the true transition). Falls back to the untethered
+    geometric target in that case, same as when no candidates exist at all.
     """
     ordered = ensure_endpoint_cuts(cuts_sec, duration_sec=duration_sec)
     candidates = sorted(float(c) for c in candidate_centers)
@@ -332,12 +346,11 @@ def overlong_gap_probe_centers(
             for c in candidates
             if left + min_edge_sec < c < right - min_edge_sec
         ]
+        targets = [left + gap * (i + 1) / (n_need + 1) for i in range(n_need)]
         if not mids:
             # Fall back to geometric midpoints when no classical candidates exist.
-            for i in range(n_need):
-                out.append(left + gap * (i + 1) / (n_need + 1))
+            out.extend(targets)
             continue
-        targets = [left + gap * (i + 1) / (n_need + 1) for i in range(n_need)]
         used: list[float] = []
         for target in targets:
             best = None
@@ -348,9 +361,11 @@ def overlong_gap_probe_centers(
                 d = abs(c - target)
                 if best_d is None or d < best_d:
                     best, best_d = c, d
-            if best is not None:
+            if best is not None and best_d is not None and best_d <= max_candidate_offset_sec:
                 used.append(best)
                 out.append(best)
+            else:
+                out.append(target)
     return sorted({round(c, 3) for c in out})
 
 

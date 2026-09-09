@@ -72,6 +72,12 @@ def main() -> int:
         help="Run overlong-gap INSERT listen when the plan looks under-segmented",
     )
     parser.add_argument(
+        "--gap-fill-max-seg-sec",
+        type=float,
+        default=480.0,
+        help="Segment length that triggers --gap-fill (default: 480.0)",
+    )
+    parser.add_argument(
         "--reuse-calibration-whisper",
         action="store_true",
         help="Prefer data/calibration/<id>/whisper_segments.json when present",
@@ -161,6 +167,7 @@ def main() -> int:
                 else None
             ),
             gap_fill=args.gap_fill,
+            gap_fill_max_seg_sec=args.gap_fill_max_seg_sec,
         )
         if not args.skip_package and (not args.artist or not args.date):
             print(

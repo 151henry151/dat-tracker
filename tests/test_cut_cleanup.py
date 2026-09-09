@@ -16,6 +16,19 @@ def test_merge_near_duplicate_cuts_preserves_well_spaced():
     assert merge_near_duplicate_cuts(cuts, min_separation_sec=20.0) == cuts
 
 
+def test_merge_near_duplicate_cuts_drops_spurious_near_zero_cut():
+    # A short opening banter/cheer cut close to the mandatory 0.0 start must be
+    # dropped, not merged forward — merging forward would overwrite the required
+    # show-start endpoint, which a later ensure_endpoint_cuts() call would then
+    # silently restore, undoing the merge and leaving the spurious cut in place.
+    cuts = [0.0, 38.0, 88.5, 432.0]
+    assert merge_near_duplicate_cuts(cuts, min_separation_sec=45.0) == [
+        0.0,
+        88.5,
+        432.0,
+    ]
+
+
 def test_merge_energy_into_probes_adds_peaks_in_long_gaps():
     anchors = [0.0, 406.0, 890.0, 1188.0]
     energy = [0.0, 200.0, 684.0, 700.0, 1000.0, 1188.0]
