@@ -321,6 +321,7 @@ def overlong_gap_probe_centers(
     min_edge_sec: float = 45.0,
     max_probes_per_gap: int = 3,
     max_candidate_offset_sec: float = 90.0,
+    sparse_candidate_limit: int = 3,
 ) -> list[float]:
     """Pick listen centers inside track segments longer than max_seg_sec.
 
@@ -332,6 +333,16 @@ def overlong_gap_probe_centers(
     entirely (the classical proposal pool had nothing nearby, so the probe
     clip never covered the true transition). Falls back to the untethered
     geometric target in that case, same as when no candidates exist at all.
+
+    When a gap has only a few (<= sparse_candidate_limit) already-rejected
+    classical candidates, probe *all* of them instead of just the one nearest
+    a geometric target: a real train miss (ymsb2007-02-24.flac16) had the true
+    boundary sitting on the second-nearest candidate to the naive midpoint,
+    not the nearest one. This is only safe because it is gated on sparsity —
+    a genuinely busy jam/solo song (sbb2001-04-27.flac16) had six candidates
+    in one legitimately continuous track; probing all of those would multiply
+    the chances of a false INSERT, so dense gaps keep the single
+    nearest-to-target probe instead.
     """
     ordered = ensure_endpoint_cuts(cuts_sec, duration_sec=duration_sec)
     candidates = sorted(float(c) for c in candidate_centers)
@@ -340,12 +351,17 @@ def overlong_gap_probe_centers(
         gap = right - left
         if gap <= max_seg_sec:
             continue
-        n_need = min(max_probes_per_gap, max(1, int(gap // max_seg_sec)))
         mids = [
             c
             for c in candidates
             if left + min_edge_sec < c < right - min_edge_sec
         ]
+        if mids and len(mids) <= sparse_candidate_limit:
+            # Sparse enough that probing every candidate is still bounded;
+            # sparse_candidate_limit is the cap here, not max_probes_per_gap.
+            out.extend(mids)
+            continue
+        n_need = min(max_probes_per_gap, max(1, int(gap // max_seg_sec)))
         targets = [left + gap * (i + 1) / (n_need + 1) for i in range(n_need)]
         if not mids:
             # Fall back to geometric midpoints when no classical candidates exist.

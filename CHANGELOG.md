@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix `overlong_gap_probe_centers` snapping a gap-fill probe to the nearest *available* classical/energy/silence candidate even when that candidate sat far from the geometric target; add a `max_candidate_offset_sec` cap (default 90s) so a distant candidate no longer displaces an untethered target that is actually closer to where the missed boundary usually sits.
 - Widen the `--gap-fill` INSERT listen clip from ±12s to ±45s so a probe built from a geometric estimate still covers the real transition when placement is off by tens of seconds.
 - Tighten the gap-fill INSERT prompt to reject a dynamic shift inside one long song (solo, jam, tempo change) unless the model can name a concrete new-track marker (applause, spoken word, count-in, a new song starting from a stop); require `insert_decisions.reason` to name that marker.
+- Probe every already-rejected classical candidate inside an overlong gap when there are only a few of them (`sparse_candidate_limit`, default 3), instead of only the one nearest a geometric midpoint — a real miss had the true boundary on the second-nearest candidate. Gaps with more candidates than that (a busy jam/solo song) keep the original single nearest-to-target probe so a dense false-candidate cluster does not get multiple chances to trigger a false INSERT.
 
 ### Added
 
