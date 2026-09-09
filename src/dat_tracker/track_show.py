@@ -19,11 +19,13 @@ from dat_tracker.package import package_show_from_plan
 from dat_tracker.refine_cuts import (
     adaptive_max_tracks,
     adaptive_min_separation_sec,
+    adaptive_refine_half_window_sec,
     adaptive_speech_snap_look_ahead_sec,
     ensure_endpoint_cuts,
     merge_near_duplicate_cuts,
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
+    snap_cuts_to_nearby_listen_centers,
     snap_cuts_to_nearby_silence_ends,
     thin_cuts_to_max_tracks,
     thin_listen_centers,
@@ -77,6 +79,13 @@ def score_plan_against_known(
     )
 
 
+def resolve_speech_snap(*, refine: bool, speech_snap: bool | None) -> bool:
+    """Default speech-snap off after refine (refine already targets new-track starts)."""
+    if speech_snap is not None:
+        return bool(speech_snap)
+    return not refine
+
+
 def run_track_show(
     *,
     source_audio: Path,
@@ -98,14 +107,15 @@ def run_track_show(
     whisper_cache_path: Path | None = None,
     skip_package: bool = False,
     refine: bool = False,
-    refine_half_window_sec: float = 20.0,
-    speech_snap: bool = True,
+    refine_half_window_sec: float | None = None,
+    speech_snap: bool | None = None,
     speech_snap_look_ahead_sec: float | None = None,
 ) -> dict[str, Any]:
     """Run sparse Gemini tracking and optionally export an etree-style package."""
     root = project_root or Path.cwd()
     paths = track_show_paths(work_root, show_id)
     paths["work_dir"].mkdir(parents=True, exist_ok=True)
+    do_speech_snap = resolve_speech_snap(refine=refine, speech_snap=speech_snap)
 
     cache_path = whisper_cache_path or paths["whisper_cache"]
     payload = ensure_whisper_cache(
@@ -138,6 +148,11 @@ def run_track_show(
         if speech_snap_look_ahead_sec is not None
         else adaptive_speech_snap_look_ahead_sec(duration)
     )
+    refine_window = (
+        refine_half_window_sec
+        if refine_half_window_sec is not None
+        else adaptive_refine_half_window_sec(duration)
+    )
 
     try:
         rel_source = str(source_audio.resolve().relative_to(root.resolve()))
@@ -165,10 +180,15 @@ def run_track_show(
             plan,
             source_audio=source_audio,
             work_dir=paths["work_dir"] / "gemini_refine",
-            half_window_sec=refine_half_window_sec,
+            half_window_sec=refine_window,
             project_root=root,
         )
-    if speech_snap:
+        plan = rebuild_tracks_from_cuts(
+            plan,
+            ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
+            note="Restored plan endpoints after refine.",
+        )
+    if do_speech_snap:
         islands = merge_speech_islands(
             filter_plausible_speech_segments(segs, max_seg_sec=20.0)
         )
@@ -208,6 +228,26 @@ def run_track_show(
             evidence_by_cut=evidence,
             note="Snapped clearly-late mid cuts back onto silence ends (≥20s late, ≤55s look-back).",
         )
+    listen_centers = sorted({float(c) for c in [*anchors, *probes]})
+    center_snapped = snap_cuts_to_nearby_listen_centers(
+        list(plan.get("cuts_sec") or []),
+        listen_centers=listen_centers,
+        duration_sec=duration,
+        radius_sec=40.0,
+        min_delta_sec=8.0,
+    )
+    if center_snapped != list(plan.get("cuts_sec") or []):
+        evidence = {
+            c: [f"LISTEN_CENTER_SNAP@{c}"]
+            for c in center_snapped[1:-1]
+            if not any(abs(c - o) <= 0.05 for o in (plan.get("cuts_sec") or []))
+        }
+        plan = rebuild_tracks_from_cuts(
+            plan,
+            center_snapped,
+            evidence_by_cut=evidence,
+            note="Snapped clearly-offset mid cuts onto nearest listen centers (±40s).",
+        )
     dedupe_sep = adaptive_min_separation_sec(duration)
     deduped = merge_near_duplicate_cuts(
         list(plan.get("cuts_sec") or []),
@@ -237,6 +277,12 @@ def run_track_show(
                     f"by dropping tightly sandwiched mid cuts."
                 ),
             )
+    # Final endpoint normalize after all post-process snaps/thins.
+    plan = rebuild_tracks_from_cuts(
+        plan,
+        ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
+        note="Final plan endpoint normalize.",
+    )
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
 
     result: dict[str, Any] = {

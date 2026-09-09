@@ -196,6 +196,22 @@ def _response_text(response: Any) -> str:
     return "\n".join(chunks)
 
 
+def coerce_refine_decision_times(
+    decision: dict[str, Any],
+) -> tuple[float, float] | None:
+    """Parse refine from/to seconds; return None when Gemini omits/nulls them."""
+    if "from_sec" not in decision and "to_sec" not in decision:
+        return None
+    raw_from = decision.get("from_sec", decision.get("to_sec"))
+    raw_to = decision.get("to_sec", decision.get("from_sec"))
+    if raw_from is None or raw_to is None:
+        return None
+    try:
+        return float(raw_from), float(raw_to)
+    except (TypeError, ValueError):
+        return None
+
+
 def _generate_content_with_retries(
     *,
     client: Any,
@@ -205,6 +221,7 @@ def _generate_content_with_retries(
 ) -> Any:
     import time
 
+    import httpx
     from google.genai import types
     from google.genai.errors import ClientError, ServerError
 
@@ -232,6 +249,12 @@ def _generate_content_with_retries(
                 time.sleep(min(60.0, 15.0 * (attempt + 1)))
             else:
                 time.sleep(2**attempt)
+        except (httpx.HTTPError, OSError, TimeoutError) as exc:
+            # Transient TLS / connection drops (e.g. SSLV3_ALERT_BAD_RECORD_MAC).
+            last_error = exc
+            if attempt + 1 >= max_retries:
+                raise
+            time.sleep(min(30.0, 2**attempt))
     assert last_error is not None
     raise last_error
 
@@ -251,7 +274,11 @@ def refine_tracking_plan_cuts(
     from google import genai
     from google.genai import types
 
-    from dat_tracker.refine_cuts import rebuild_tracks_from_cuts, refine_listen_prompt
+    from dat_tracker.refine_cuts import (
+        ensure_endpoint_cuts,
+        rebuild_tracks_from_cuts,
+        refine_listen_prompt,
+    )
 
     root = project_root or Path.cwd()
     key = api_key or resolve_gemini_api_key(project_root=root)
@@ -307,19 +334,26 @@ def refine_tracking_plan_cuts(
     new_cuts = [float(c) for c in raw.get("cuts_sec") or []]
     if len(new_cuts) < 2:
         # Fall back to refine_decisions map if cuts_sec omitted.
-        decisions = {
-            float(d["from_sec"]): float(d["to_sec"])
-            for d in raw.get("refine_decisions") or []
-            if "from_sec" in d and "to_sec" in d
-        }
+        decisions = {}
+        for d in raw.get("refine_decisions") or []:
+            parsed = coerce_refine_decision_times(d)
+            if parsed is None:
+                continue
+            frm, to = parsed
+            decisions[frm] = to
         new_cuts = [decisions.get(c, c) for c in proposed]
 
     evidence: dict[float, list[str]] = {}
     for decision in raw.get("refine_decisions") or []:
-        to_sec = float(decision.get("to_sec", decision.get("from_sec", 0.0)))
-        frm = float(decision.get("from_sec", to_sec))
+        parsed = coerce_refine_decision_times(decision)
+        if parsed is None:
+            continue
+        frm, to_sec = parsed
         reason = str(decision.get("reason") or "")
         evidence.setdefault(to_sec, []).append(f"REFINE {frm}->{to_sec}: {reason}")
+
+    # Refine responses sometimes omit 0 / duration; restore before rebuild.
+    new_cuts = ensure_endpoint_cuts(new_cuts, duration_sec=duration_sec)
 
     refined = rebuild_tracks_from_cuts(
         plan,

@@ -40,8 +40,8 @@ def test_thin_listen_centers_skips_short_shows_even_if_dense():
 
 
 def test_adaptive_speech_snap_look_ahead_grows_on_long_shows():
-    assert adaptive_speech_snap_look_ahead_sec(800.0) == 45.0
-    assert adaptive_speech_snap_look_ahead_sec(2500.0) == 90.0
+    assert adaptive_speech_snap_look_ahead_sec(800.0) == 30.0
+    assert adaptive_speech_snap_look_ahead_sec(2500.0) == 45.0
 
 
 def test_ensure_endpoint_cuts_adds_missing_zero_and_duration():

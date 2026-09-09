@@ -170,12 +170,18 @@ Clips:
 
 Listen like a careful human in Audacity.
 For each candidate clip, decide ACCEPT, REJECT, or SNAP (± a few seconds).
-REJECT when the clip is continuous music, continuous applause with no new track,
-or a mid-song energy bump. Typical bluegrass songs are often ~2–6 minutes; a
-7–12 minute "song" with no banter may still be one track, but two clear song
-sections with applause/count-in between should be split.
-Keep stage banter / tuning / intros as their own tracks when distinct.
-Mark segues with segue_into_next true when music continues without a real stop.
+REJECT when the clip is continuous music with no track change, or a mid-song
+energy bump. Typical bluegrass songs are often ~2–6 minutes; a 7–12 minute
+song with no banter may still be one track, but two clear song sections with
+applause/count-in between should be split.
+
+Etree convention (required): keep stage banter, tuning, song intros, and encore
+breaks as their *own* tracks when they are distinct from the songs. Do not fold
+banter into the previous or next song just to reduce track count.
+
+Place each cut where the *next* track begins (first word of banter, count-in, or
+first note of the next song)—usually after trailing applause that still belongs
+on the previous track.
 
 Return ONLY a JSON object matching this shape (no markdown):
 {{
@@ -203,8 +209,8 @@ Return ONLY a JSON object matching this shape (no markdown):
 
 Rules:
 - cuts_sec must start at 0 and end at duration_sec.
-- Prefer fewer correct cuts over keeping every proposal.
-- Drop false positives aggressively.
+- Drop mid-song false positives; keep real song→song and song→banter boundaries.
+- Missing a real boundary is as bad as keeping a false one.
 - You may add a cut near a gap_probe if the audio clearly shows a missed boundary.
 - Prefer "tracks": [] and put ACCEPT/REJECT/SNAP decisions in notes to keep JSON small;
   cuts_sec is required. Titles may be null/omitted when tracks is empty.

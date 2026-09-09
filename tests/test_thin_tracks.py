@@ -5,9 +5,9 @@ from dat_tracker.refine_cuts import adaptive_max_tracks, thin_cuts_to_max_tracks
 
 def test_adaptive_max_tracks_scales_with_duration():
     assert adaptive_max_tracks(800.0) == 4  # floor
-    assert adaptive_max_tracks(1200.0) == 4
-    assert adaptive_max_tracks(3287.0) == 10
-    assert adaptive_max_tracks(3883.0) == 12
+    assert adaptive_max_tracks(1200.0) == 5
+    assert adaptive_max_tracks(3287.0) == 14
+    assert adaptive_max_tracks(3883.0) == 16
 
 
 def test_thin_cuts_to_max_tracks_merges_shortest_segments():

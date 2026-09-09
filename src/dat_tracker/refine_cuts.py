@@ -122,6 +122,46 @@ def snap_cuts_to_nearby_silence_ends(
     return mono
 
 
+def snap_cuts_to_nearby_listen_centers(
+    cuts_sec: list[float],
+    *,
+    listen_centers: list[float],
+    duration_sec: float,
+    radius_sec: float = 40.0,
+    min_delta_sec: float = 8.0,
+) -> list[float]:
+    """Snap clearly-offset mid cuts onto the nearest listen center in radius.
+
+    Gemini often lands 20–40s off a real transition that was already proposed as
+    a speech/energy listen center. Pulling those mid cuts onto the nearest
+    center (only when farther than min_delta_sec) corrects near-misses without
+    thrashing already-close placements.
+    """
+    centers = sorted(float(c) for c in listen_centers)
+    ordered = sorted(float(c) for c in cuts_sec)
+    if not ordered:
+        return []
+    out = [ordered[0]]
+    for cut in ordered[1:-1]:
+        near = [(abs(c - cut), c) for c in centers if abs(c - cut) <= radius_sec]
+        if near:
+            delta, center = min(near, key=lambda t: t[0])
+            out.append(center if delta >= min_delta_sec else cut)
+        else:
+            out.append(cut)
+    out.append(
+        ordered[-1] if abs(ordered[-1] - duration_sec) <= 0.05 else float(duration_sec)
+    )
+    mono: list[float] = [out[0]]
+    for c in out[1:]:
+        if c < mono[-1] + 0.05:
+            continue
+        mono.append(c)
+    if abs(mono[-1] - duration_sec) > 0.05:
+        mono.append(float(duration_sec))
+    return mono
+
+
 def merge_near_duplicate_cuts(
     cuts_sec: list[float],
     *,
@@ -153,9 +193,18 @@ def adaptive_min_separation_sec(duration_sec: float) -> float:
     return 20.0
 
 
+def adaptive_refine_half_window_sec(duration_sec: float) -> float:
+    """Widen refine clips on longer shows so ±15–40s placement errors are audible."""
+    if duration_sec >= 2000.0:
+        return 50.0
+    if duration_sec >= 1200.0:
+        return 40.0
+    return 20.0
+
+
 def adaptive_max_tracks(duration_sec: float) -> int:
-    """Soft upper bound on track count from show length (~5.3 min average)."""
-    return max(4, int(round(float(duration_sec) / 320.0)))
+    """Soft upper bound on track count (~4 min average, including banter tracks)."""
+    return max(4, int(round(float(duration_sec) / 240.0)))
 
 
 def thin_cuts_to_max_tracks(
@@ -189,10 +238,10 @@ def thin_cuts_to_max_tracks(
 
 
 def adaptive_speech_snap_look_ahead_sec(duration_sec: float) -> float:
-    """Longer forward speech-snap windows on long shows (early-cut bias)."""
+    """Forward speech-snap windows; keep modest so mid-song speech is not preferred."""
     if duration_sec >= 2000.0:
-        return 90.0
-    return 45.0
+        return 45.0
+    return 30.0
 
 
 def ensure_endpoint_cuts(cuts_sec: list[float], *, duration_sec: float) -> list[float]:
@@ -303,7 +352,7 @@ Return ONLY JSON:
 }}
 
 Rules:
-- Keep endpoints 0 and duration_sec.
+- cuts_sec MUST begin with 0.0 and end with duration_sec (never omit endpoints).
 - You may move mid cuts earlier/later within the clip window.
 - Prefer the start of new material (count-in, first note of next song, banter onset).
 - If the proposed cut is already correct, keep it (to_sec == from_sec).

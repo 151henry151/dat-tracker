@@ -90,6 +90,9 @@ def test_tracking_listen_prompt_requires_rejecting_false_candidates():
     assert "REJECT" in prompt
     assert "false positive" in prompt.lower() or "false positives" in prompt.lower()
     assert "gap_probe" in prompt or "probe" in prompt.lower()
+    assert "banter" in prompt.lower()
+    assert "own" in prompt.lower()
+    assert "missing a real boundary" in prompt.lower()
 
 
 def test_parse_model_json_accepts_fenced_block():

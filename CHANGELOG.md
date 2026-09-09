@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Restore tracking-plan endpoints (0 and duration) after the Gemini refine pass and again before writing the plan, so mid-cut-only refine responses do not drop the show start.
+- Widen Gemini refine listen windows on longer shows (35s mid-length, 40s long) so typical ±15–40s placement errors fall inside the clip.
+- Snap clearly-offset mid cuts onto the nearest speech/energy listen center within ±40s after Gemini listen.
+- Skip forward speech-snap by default when the Gemini refine pass runs, so refine placements are not pulled into mid-song speech.
+- Raise the long-show track-count budget from ~5.3 min/track to ~4 min/track and shorten speech-snap look-ahead on long shows.
+- Rebalance the Gemini listen prompt toward etree banter/intro tracks and against under-segmentation; widen long-show refine windows to ±50s.
+- Retry Gemini generate_content on transient HTTP/TLS transport errors (e.g. SSL bad-record-mac) in addition to 429/503.
+- Skip refine_decisions entries with null or non-numeric from/to times instead of crashing the refine pass.
 - Rename project and Python package from `bluegrass-dat-tracker` / `bluegrass_dat_tracker` to `dat-tracker` / `dat_tracker`.
 - Change Phase 2 from human-in-the-loop waveform review to LLM-powered automatic tracking with calibration-gated release and exceptional-only human spot-checks.
 - Parse Live Bluegrass dump filenames with leading `YYMMDD` / `YYYYMMDD` dates and known artist abbrevs into catalog rows; coalesce multipart raw FLACs.

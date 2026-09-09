@@ -52,6 +52,11 @@ def main() -> int:
         help="Disable forward snap of cuts onto nearby speech onsets",
     )
     parser.add_argument(
+        "--force-speech-snap",
+        action="store_true",
+        help="Force speech snap even when --refine is set (refine defaults snap off)",
+    )
+    parser.add_argument(
         "--refine-only",
         action="store_true",
         help="Refine an existing tracking_plan_gemini.json without re-proposing",
@@ -143,7 +148,13 @@ def main() -> int:
             whisper_cache_path=whisper_cache,
             skip_package=args.skip_package,
             refine=args.refine,
-            speech_snap=not args.no_speech_snap,
+            speech_snap=(
+                False
+                if args.no_speech_snap
+                else True
+                if args.force_speech_snap
+                else None
+            ),
         )
         if not args.skip_package and (not args.artist or not args.date):
             print(
