@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Retry Gemini refine/gap-fill when the model returns truncated or invalid JSON, matching the first-listen retry behavior.
 - Auto-escalate under-segmented shows to Gemini Pro for gap-fill and refine; add a guarded early-cut→speech snap helper for near-miss polish experiments.
 - Add Tier A helpers to align Jon packages inside extracted Live Bluegrass raws, write continuous extracts + known cuts, and score plans against them.
+- Widen Gemini refine listen windows further on very long shows (≥4000s → ±60s) to cover typical Tier A near-miss placement errors.
 - Rename project and Python package from `bluegrass-dat-tracker` / `bluegrass_dat_tracker` to `dat-tracker` / `dat_tracker`.
 - Change Phase 2 from human-in-the-loop waveform review to LLM-powered automatic tracking with calibration-gated release and exceptional-only human spot-checks.
 - Parse Live Bluegrass dump filenames with leading `YYMMDD` / `YYYYMMDD` dates and known artist abbrevs into catalog rows; coalesce multipart raw FLACs.

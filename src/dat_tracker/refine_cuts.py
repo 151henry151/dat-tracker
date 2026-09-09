@@ -239,6 +239,8 @@ def adaptive_min_separation_sec(duration_sec: float) -> float:
 
 def adaptive_refine_half_window_sec(duration_sec: float) -> float:
     """Widen refine clips on longer shows so ±15–40s placement errors are audible."""
+    if duration_sec >= 4000.0:
+        return 60.0
     if duration_sec >= 2000.0:
         return 50.0
     if duration_sec >= 1200.0:
