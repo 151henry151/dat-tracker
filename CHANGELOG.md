@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Snap clearly-late mid cuts (≥20 s) back onto a recent silence end after Gemini listen.
 - Thin long-show cut lists to a duration-based max track count by dropping tightly sandwiched mid cuts.
 - Add Tier B train/holdout plan scoring helpers and `scripts/score_tier_b_plans.py`.
+- Add `scripts/run_tier_b_split.py` to batch-track a Tier B train or holdout split.
 - Lock numeric held-out calibration gates (Tier B mean F1 ≥ 0.85 @ ±15s; Tier A mean F1 ≥ 0.80) before Live Bluegrass batching.
 - Add resume-capable Dropbox zip download script targeting `data/raw/Live Bluegrass.zip`.
 - Add Archive.org ground-truth download script for the 15 Dave Ward / Brian H calibration items.
