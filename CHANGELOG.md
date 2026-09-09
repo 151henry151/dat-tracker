@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Depersonalize maintainer-specific paths and credit defaults in PLAN/AGENTS/docs for public publication; default `--tracker` credit string is `dat-tracker`.
+- Expand the README Status section with done / in-progress / calibration snapshot / roadmap.
+- Ignore `data/calibration_tier_a/**` local extracts (absolute paths) the same way as other media under `data/`.
+- Add a top-level MIT `LICENSE` file.
+
 ### Fixed
 
 - Fix `merge_near_duplicate_cuts` dropping the mandatory show-start cut (0.0) instead of the spurious near-zero cut when a false opening banter/cheer boundary lands within the adaptive merge window; the old behavior let `ensure_endpoint_cuts` silently re-insert 0.0 afterward and restore the spurious cut. Raises Tier B train mean F1 @±15s from 0.644 to 0.661 and min F1 from 0.500 to 0.533 with no regressions on any train or holdout show.

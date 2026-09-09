@@ -13,7 +13,7 @@ def test_format_show_txt_matches_jon_template_shape():
         source="SBD > DAT",
         transfer="DAT > Sony PCM-2600>ESI U24XL > Audacity > FLAC",
         transferer="Cate Crowe",
-        tracker="Henry",
+        tracker="dat-tracker",
         set_label="One Set",
         tracks=[
             {"num": 1, "title": "My Heart Will Follow You >"},
@@ -26,7 +26,7 @@ def test_format_show_txt_matches_jon_template_shape():
     assert "Cincinnati, OH" in text
     assert "Source: SBD > DAT" in text
     assert "Transferred by: Cate Crowe" in text
-    assert "Tracked & Uploaded by: Henry" in text
+    assert "Tracked & Uploaded by: dat-tracker" in text
     assert "One Set:" in text
     assert "1. My Heart Will Follow You >" in text
     assert "2. Banter" in text

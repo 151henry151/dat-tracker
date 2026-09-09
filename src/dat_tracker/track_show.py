@@ -141,7 +141,7 @@ def run_track_show(
     work_root: Path,
     artist: str,
     date: str,
-    tracker: str = "Henry",
+    tracker: str = "dat-tracker",
     venue: str | None = None,
     city: str | None = None,
     state: str | None = None,

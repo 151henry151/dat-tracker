@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/henry/dat-tracker/catalog/schema.json",
+  "$id": "https://github.com/151henry151/dat-tracker/catalog/schema.json",
   "title": "DAT show catalog",
   "description": "Inventory of candidate shows from a DAT→FLAC dump and their tracking/upload status.",
   "type": "object",

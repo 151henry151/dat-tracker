@@ -28,7 +28,7 @@ def main() -> int:
     )
     parser.add_argument("--artist", default=None)
     parser.add_argument("--date", default=None, help="YYYY-MM-DD")
-    parser.add_argument("--tracker", default="Henry")
+    parser.add_argument("--tracker", default="dat-tracker")
     parser.add_argument("--venue", default=None)
     parser.add_argument("--city", default=None)
     parser.add_argument("--state", default=None)

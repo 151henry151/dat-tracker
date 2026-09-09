@@ -1,12 +1,11 @@
 # DAT track-and-upload workflow
 
-**Project root:** `/home/henry/dev/dat-tracker`  
 **Project / package name:** `dat-tracker` (Python import package: `dat_tracker`)  
 **For agents:** Read this file first and execute it in order. Do not wait on community coordination before tracking. Validate against already-uploaded Archive.org shows before presenting new uploads.
 
 ## Overview
 
-Download the full ~100GB Live Bluegrass Dropbox dump, build an **LLM-powered automatic tracking pipeline**, then track and package every remaining show to etree/LMA standards for upload under Henry’s Archive.org account.
+Download the full ~100GB Live Bluegrass Dropbox dump, build an **LLM-powered automatic tracking pipeline**, then track and package every remaining show to etree/LMA standards for upload under the operator’s Archive.org account.
 
 **Calibration must not overfit Live Bluegrass alone (locked).** Jon King’s already-uploaded Dave Ward / Brian H items are the *primary* in-domain targets (same transfer chain and style), but the tracker must also be measured against **additional high-quality tracked DAT packages** from the same community and from other careful etree/LMA work—so prompts, tools, and thresholds generalize. Prefer small downloadable items. Longer term, treat a **large corpus of already-tracked DAT→FLAC packages on Archive.org** as training/RAG material so the LLM improves at the same job humans already did well.
 
@@ -52,7 +51,7 @@ One Set:
 ...
 ```
 
-New uploads should keep Cate Crowe as transferer and credit the actual tracker/uploader (Henry / account used).
+New uploads should keep Cate Crowe as transferer and credit the actual tracker/uploader (the Archive.org account used for upload).
 
 ```mermaid
 flowchart LR
@@ -68,8 +67,8 @@ flowchart LR
 
 ## Decisions locked in
 
-- Project lives at **`/home/henry/dev/dat-tracker`** (this repo; package name `dat-tracker`).
-- Download **entire** Dropbox dump (~100 GB; host has ample free space).
+- Package name is **`dat-tracker`** (import package `dat_tracker`).
+- Download **entire** Dropbox dump (~100 GB; ensure the host has enough free disk).
 - Track **all** shows; do **not** wait on coordination first.
 - Treat Jon’s Dave Ward / Brian H uploads as **primary in-domain calibration**, but **do not** tune solely against them—require held-out metrics on **additional external tracked DAT packages** so the system does not overfit one dump’s quirks (tape gaps, festival multi-artist files, naming).
 - **Automation first (locked):** the LLM drives boundary placement, track-type labels, segue marks, titles/setlist, and packaging. Do **not** build a required human waveform review UI. Human involvement is reserved for exceptional failures (metrics/confidence below threshold), ideally none for well-behaved shows.
@@ -188,7 +187,7 @@ For each finished show:
 - Identifier / dir: etree style (`del2005-05-29`, `hotrize1996-06-09`, source suffix if needed e.g. `.sbd`).
 - Choose collection: existing LMA band collection if present and band policy allows; otherwise `taperssection` (as Jon did for Hot Rize, Doc Watson, OCMS, etc.).
 - Metadata fields: title, creator, date, venue, coverage, source, lineage, taper, transferer, subject tags including collection name.
-- Upload via Archive.org account (`ia` CLI or web LMA uploader). Credit chain must remain honest: Cate Crowe transfer; Henry (or named account) as tracker/uploader; note source collection.
+- Upload via Archive.org account (`ia` CLI or web LMA uploader). Credit chain must remain honest: Cate Crowe transfer; the uploading account as tracker/uploader; note source collection.
 
 Do **not** re-upload the calibration shows as competing items if they already exist; use them only for validation. New uploads are for catalog rows still missing from IA (and any clearly distinct sources, e.g. SBD vs Matrix already separated).
 
@@ -196,7 +195,7 @@ Do **not** re-upload the calibration shows as competing items if they already ex
 
 Once ground-truth match is solid and a first batch of new shows is packaged:
 
-- Draft (for Henry to post) a Reddit reply / email to OP summarizing method, validation against Jon’s uploads, and links to new IA items — **offer the reusable workflow/tooling**, not only the finished IA items.
+- Draft a Reddit reply / email to OP summarizing method, validation against Jon’s uploads, and links to new IA items — **offer the reusable workflow/tooling**, not only the finished IA items. Leave community posting to the maintainer.
 - Keep a checklist in the catalog of done vs remaining (including any rare `needs_review` leftovers).
 
 ## Phase 5 — Package for other DAT dumps
@@ -229,7 +228,7 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 - **Overfitting:** tuning only on the 15 Jon packages (or one night like `020802_JCB_RR`) will look good and fail elsewhere—external Tier B held-out is mandatory.
 - **Raw+tracked pairs are rare**; Cate/Jon bluegrass on IA is currently just those 15 items. Synthetic re-split is necessary for scale; always re-check on true Tier A raws before shipping.
 - Some raw dump files contain **multiple artists/sets** (e.g. Riverbend 2002-08-02 PRTR + JCB in one FLAC)—alignment/segmentation is part of tracking, not a catalog error.
-- Disk: `/home/henry` volume had ~380 GB free when this project was created (verify again before download); keep external calibration downloads size-capped.
+- Disk: verify free space before the ~100 GB dump download; keep external calibration downloads size-capped.
 - Reuse packaging too early risks baking in Live Bluegrass assumptions; prefer proving calibration first, then extracting config (Phase 5). While building Phases 1–3, still **avoid hardcoding** collection names and credit strings in core modules when a config/parameter will do.
 - LLM/ASR cost and latency will matter at full-dump scale; cache features and avoid re-decoding.
 
@@ -240,10 +239,11 @@ Do this **after** Phases 2–4 prove the method on Live Bluegrass (do not block 
 - [x] Download all Dave Ward / Brian H IA items; mark catalog `already_uploaded` vs `todo`
 - [x] Build catalog from zip listing + IA (YYMMDD dump names); link calibration raw paths
 - [x] Curate + download small Tier B external calibration set; synthetic re-split harness
-- [ ] Implement signal extractors + auto-diff against Jon ground-truth FLACs (incl. multi-show raw alignment)
-- [ ] Implement LLM tracking loop (boundaries, labels, segues, titles) with multi-corpus few-shot/RAG
-- [ ] Calibrate until held-out Tier A **and** Tier B match is shippable without human cuts
-- [ ] Export etree-named FLACs, Jon-style txt, ffp, tags; batch remaining shows
-- [ ] Track remaining shows; upload new items via `ia` CLI to etree or taperssection with correct credits
+- [x] Classical/ASR proposal stack + boundary F1 scoring (Tier B train/holdout; Tier A align extracts)
+- [x] Sparse Gemini listen / refine / optional gap-fill / Pro escalate → tracking-plan JSON + package export
+- [ ] Raise held-out Tier A **and** Tier B metrics to the locked shipping gates (still failing; see README Status)
+- [ ] Few-shot / RAG from multi-corpus calibration; harden titles/segues beyond boundary F1
+- [ ] Fix festival multi-artist Tier A alignment; guard Pro escalate against track-count collapse
+- [ ] Batch remaining Live Bluegrass `todo` shows only after gates pass; upload via `ia` with correct credits
 - [ ] Phase 2b: index broader DAT tracked corpus for RAG / future training
 - [ ] Phase 5: package installable automatic workflow + docs so others can run it on other DAT dumps

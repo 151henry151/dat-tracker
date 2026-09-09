@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/henry/dat-tracker/catalog/tracking_plan.schema.json",
+  "$id": "https://github.com/151henry151/dat-tracker/catalog/tracking_plan.schema.json",
   "title": "DAT tracking plan",
   "description": "Structured LLM (or heuristic draft) plan for cutting and labeling one continuous show FLAC.",
   "type": "object",

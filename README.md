@@ -64,7 +64,46 @@ Fully automatic release is the goal; confidence gates flag hard shows instead of
 
 ## Status
 
-Early development (**0.1.0**). Version stays at 0.1.0 until this proof-of-concept can automatically track and package the Live Bluegrass DAT dump at the locked calibration gates in [PLAN.md](PLAN.md); later bumps are for broader input variety and polish. Ingest, cataloging, calibration corpora, and the sparse Gemini listen loop are in progress. See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for detail.
+Early development (**0.1.0**). Version stays at 0.1.0 until Live Bluegrass packaging passes the locked calibration gates in [PLAN.md](PLAN.md). Do **not** treat the dump’s remaining `todo` FLACs as ready to batch yet — calibration quality is still below the bar.
+
+### Done
+
+- Project scaffold (semver, changelog, catalog schema, MIT license).
+- Live Bluegrass Dropbox ingest helpers, IA ground-truth download path, and catalog merge (`already_uploaded` vs `todo`).
+- Tier B external calibration corpus + synthetic re-split harness (train/holdout manifests and scorers).
+- Tier A helpers to align Jon packages inside extracted raws and score plans against known cuts.
+- Classical/ASR proposal stack (silence, energy, speech islands) feeding sparse Gemini listening.
+- End-to-end `scripts/track_show.py`: Whisper → Gemini Flash listen → optional refine / gap-fill / Pro escalate → tracking-plan JSON → optional etree package export.
+- Hardening from calibration loops: endpoint restoration, refine windows, snaps, JSON/transport retries, near-zero merge fix, sparse gap-fill probes, temperature 0.0, segue guidance in the listen prompt.
+
+### In progress
+
+- Raising **boundary F1** and track-count agreement to the shipping gates (still failing on held-out Tier B and Tier A).
+- Making gap-fill reliable on hard under-segmented shows (e.g. some YMSB Tier B cases) without mid-song false inserts.
+- Reducing run-to-run variance on ambiguous shows even at temperature 0.0.
+- Near-miss placement polish (many cuts land within ~15–60 s of truth but miss the ±15 s gate).
+- Guarding Pro escalate so it cannot collapse a reasonable mid-cut lattice (seen on some Tier A runs).
+
+### Latest calibration snapshot (approximate)
+
+Tune on **train**, not holdout. Numbers move as plans are regenerated.
+
+| Set | mean F1 @ ±15 s | Notes |
+|-----|-----------------|--------|
+| Tier B train | ~0.69 | Track \|Δ\|≤1 recently ~100% on train; mean/min still short of the *holdout* gate |
+| Tier B holdout | ~0.57 (may be stale vs latest code) | Gate: mean ≥ **0.85**, min ≥ **0.70** |
+| Tier A (3 shows) | ~0.37 (may be stale) | Gate: mean ≥ **0.80** on ≥3 real raw↔Jon shows |
+
+### Roadmap / how we plan to improve
+
+1. **Train-first placement** — better refine/listen prompts and optional classical polish aimed at “next track start,” validated with multi-run corroboration (temperature 0.0 helps but does not eliminate flips).
+2. **Far-miss recovery** — keep gap-fill optional/guarded; corroborate sparse multi-probe behavior on remaining hard train shows before auto-triggering.
+3. **Pro escalate guardrails** — preserve well-spaced mid cuts when escalating long under-segmented shows.
+4. **Re-score Tier A + holdout** only after train gains stick; fix weak festival multi-artist alignment before using those nights as gates.
+5. **Batch Live Bluegrass `todo`** and Archive.org upload only after held-out gates pass.
+6. **Phase 2b / 5** — broader DAT corpus RAG / optional specialist models; installable config for other dumps (locked goal in PLAN.md).
+
+See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for locked decisions and detailed phases.
 
 ## Layout
 
@@ -98,7 +137,7 @@ The Python package **`internetarchive`** (Archive.org’s official library / `ia
 ### 1. Get the code
 
 ```bash
-git clone <this-repo-url> dat-tracker
+git clone https://github.com/151henry151/dat-tracker.git
 cd dat-tracker
 ```
 
@@ -280,7 +319,10 @@ Useful flags:
 | `--source PATH` | Continuous FLAC (default under `data/calibration/<show-id>/`) |
 | `--skip-package` | Write the tracking plan only (no track FLAC / txt / ffp export) |
 | `--refine` | Second Gemini listen pass (more accurate, more API use) |
+| `--gap-fill` | Optional INSERT listen on overlong segments (off by default; use carefully) |
+| `--gap-fill-max-seg-sec N` | Segment length that triggers gap-fill probes (default 480) |
 | `--reuse-calibration-whisper` | Reuse a cached Whisper JSON under `data/calibration/` when present |
+| `--tracker NAME` | Credit string written into show.txt (default `dat-tracker`) |
 
 Outputs land under `data/work/<show-id>/` (plan JSON, listen clips, optional `package/`).
 
@@ -336,4 +378,4 @@ Agents and maintainers working in this repo should follow **[PLAN.md](PLAN.md)**
 
 ## License
 
-MIT — see `pyproject.toml`.
+MIT — see [LICENSE](LICENSE).

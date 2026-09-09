@@ -30,7 +30,7 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--artist", default="Unknown Artist")
     parser.add_argument("--date", default=None)
-    parser.add_argument("--tracker", default="Henry")
+    parser.add_argument("--tracker", default="dat-tracker")
     parser.add_argument("--venue", default=None)
     parser.add_argument("--city", default=None)
     parser.add_argument("--state", default=None)

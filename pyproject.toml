@@ -9,7 +9,7 @@ description = "LLM-powered automatic tracking of untrimmed DAT transfers into et
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-authors = [{ name = "Henry" }]
+authors = [{ name = "151henry151" }]
 dependencies = [
   "internetarchive>=4.0",
   "jsonschema>=4.0",
