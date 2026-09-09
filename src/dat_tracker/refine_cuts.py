@@ -521,6 +521,13 @@ For each probe: INSERT a cut near the probe if you hear a real track change
 (applause into banter/new song, count-in, clear song boundary). REJECT if the
 clip is continuous music with no track change.
 
+Long bluegrass/jam songs often contain an instrumental break, solo, or tempo
+shift that sounds like a new section but is still the *same* song — REJECT
+those. Only INSERT when you can name a concrete new-track marker (applause
+starting, a spoken word, a count-in, a clearly new song's melody/key/tempo
+starting from a stop or vamp-down) — not just "the playing changed" or "a solo
+started/ended". If you are not confident it is a real boundary, REJECT.
+
 Return ONLY JSON:
 {{
   "schema_version": "1.0.0",
@@ -540,5 +547,9 @@ Rules:
 - cuts_sec MUST begin with 0.0 and end with duration_sec.
 - Keep all existing cuts unless clearly wrong; ADD inserts for missed boundaries.
 - Prefer insert_sec at the start of new material inside the clip.
+- Each insert_decisions reason must name the concrete marker you heard
+  (applause, spoken word, count-in, a new song starting from a stop/vamp)
+  — a reason like "section change" or "solo ended" is not enough; REJECT
+  instead when that is all you have.
 - tracks may be empty; cuts_sec is required.
 """

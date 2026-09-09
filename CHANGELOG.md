@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix `merge_near_duplicate_cuts` dropping the mandatory show-start cut (0.0) instead of the spurious near-zero cut when a false opening banter/cheer boundary lands within the adaptive merge window; the old behavior let `ensure_endpoint_cuts` silently re-insert 0.0 afterward and restore the spurious cut. Raises Tier B train mean F1 @±15s from 0.644 to 0.661 and min F1 from 0.500 to 0.533 with no regressions on any train or holdout show.
 - Fix `overlong_gap_probe_centers` snapping a gap-fill probe to the nearest *available* classical/energy/silence candidate even when that candidate sat far from the geometric target; add a `max_candidate_offset_sec` cap (default 90s) so a distant candidate no longer displaces an untethered target that is actually closer to where the missed boundary usually sits.
 - Widen the `--gap-fill` INSERT listen clip from ±12s to ±45s so a probe built from a geometric estimate still covers the real transition when placement is off by tens of seconds.
+- Tighten the gap-fill INSERT prompt to reject a dynamic shift inside one long song (solo, jam, tempo change) unless the model can name a concrete new-track marker (applause, spoken word, count-in, a new song starting from a stop); require `insert_decisions.reason` to name that marker.
 
 ### Added
 
