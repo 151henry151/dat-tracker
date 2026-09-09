@@ -153,6 +153,41 @@ def adaptive_min_separation_sec(duration_sec: float) -> float:
     return 20.0
 
 
+def adaptive_max_tracks(duration_sec: float) -> int:
+    """Soft upper bound on track count from show length (~5.3 min average)."""
+    return max(4, int(round(float(duration_sec) / 320.0)))
+
+
+def thin_cuts_to_max_tracks(
+    cuts_sec: list[float],
+    *,
+    max_tracks: int,
+) -> list[float]:
+    """Drop the most tightly sandwiched mid cuts until track count fits.
+
+    Over-dense Gemini accepts on long jam sets create brief false tracks. Removing
+    interior cuts with the smallest neighboring gap prefers merging those shorts
+    without deleting well-spaced song boundaries.
+    """
+    ordered = sorted(float(c) for c in cuts_sec)
+    if len(ordered) < 2:
+        return ordered
+    while len(ordered) - 1 > max_tracks:
+        best_i = None
+        best_score = float("inf")
+        for i in range(1, len(ordered) - 1):
+            left = ordered[i] - ordered[i - 1]
+            right = ordered[i + 1] - ordered[i]
+            score = min(left, right)
+            if score < best_score:
+                best_score = score
+                best_i = i
+        if best_i is None:
+            break
+        ordered.pop(best_i)
+    return ordered
+
+
 def adaptive_speech_snap_look_ahead_sec(duration_sec: float) -> float:
     """Longer forward speech-snap windows on long shows (early-cut bias)."""
     if duration_sec >= 2000.0:

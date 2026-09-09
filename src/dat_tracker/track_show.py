@@ -17,6 +17,7 @@ from dat_tracker.gemini_tracker import (
 )
 from dat_tracker.package import package_show_from_plan
 from dat_tracker.refine_cuts import (
+    adaptive_max_tracks,
     adaptive_min_separation_sec,
     adaptive_speech_snap_look_ahead_sec,
     ensure_endpoint_cuts,
@@ -24,6 +25,7 @@ from dat_tracker.refine_cuts import (
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
     snap_cuts_to_nearby_silence_ends,
+    thin_cuts_to_max_tracks,
     thin_listen_centers,
 )
 from dat_tracker.speech import (
@@ -220,6 +222,21 @@ def run_track_show(
                 f"{dedupe_sep:.0f}s (kept later time in each cluster)."
             ),
         )
+    max_tracks = adaptive_max_tracks(duration)
+    if duration >= 2000.0:
+        budgeted = thin_cuts_to_max_tracks(
+            list(plan.get("cuts_sec") or []),
+            max_tracks=max_tracks,
+        )
+        if budgeted != list(plan.get("cuts_sec") or []):
+            plan = rebuild_tracks_from_cuts(
+                plan,
+                budgeted,
+                note=(
+                    f"Thinned long-show cuts to max {max_tracks} tracks "
+                    f"by dropping tightly sandwiched mid cuts."
+                ),
+            )
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
 
     result: dict[str, Any] = {
