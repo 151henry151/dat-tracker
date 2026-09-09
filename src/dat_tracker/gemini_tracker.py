@@ -271,6 +271,8 @@ def refine_tracking_plan_cuts(
     max_retries: int = 5,
 ) -> dict[str, Any]:
     """Second listen pass: snap mid cuts to where the next track begins."""
+    import time
+
     from google import genai
     from google.genai import types
 
@@ -324,13 +326,33 @@ def refine_tracking_plan_cuts(
             types.Part.from_bytes(data=path.read_bytes(), mime_type="audio/flac")
         )
 
-    response = _generate_content_with_retries(
-        client=client,
-        model_name=model_name,
-        parts=parts,
-        max_retries=max_retries,
-    )
-    raw = parse_model_json(_response_text(response))
+    last_error: Exception | None = None
+    raw: dict[str, Any] | None = None
+    for attempt in range(max_retries):
+        text = ""
+        try:
+            response = _generate_content_with_retries(
+                client=client,
+                model_name=model_name,
+                parts=parts,
+                max_retries=max_retries,
+            )
+            text = _response_text(response)
+            if not text.strip():
+                raise ValueError("Empty Gemini refine response text")
+            raw = parse_model_json(text)
+            break
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            last_error = exc
+            bad = work_dir / f"bad_refine_response_{attempt}.txt"
+            bad.write_text(text or repr(exc), encoding="utf-8")
+            if attempt + 1 >= max_retries:
+                raise
+            time.sleep(min(20.0, 2**attempt))
+    if raw is None:
+        assert last_error is not None
+        raise last_error
+
     new_cuts = [float(c) for c in raw.get("cuts_sec") or []]
     if len(new_cuts) < 2:
         # Fall back to refine_decisions map if cuts_sec omitted.
@@ -373,6 +395,153 @@ def refine_tracking_plan_cuts(
     )
     validate_tracking_plan(refined)
     return refined
+
+
+def gap_fill_tracking_plan_cuts(
+    plan: dict[str, Any],
+    *,
+    source_audio: Path,
+    work_dir: Path,
+    probe_centers_sec: list[float],
+    half_window_sec: float = 12.0,
+    api_key: str | None = None,
+    model: str | None = None,
+    project_root: Path | None = None,
+    max_retries: int = 5,
+) -> dict[str, Any]:
+    """Listen at overlong-gap probes and INSERT missed mid cuts."""
+    import time
+
+    from google import genai
+    from google.genai import types
+
+    from dat_tracker.refine_cuts import (
+        ensure_endpoint_cuts,
+        gap_fill_listen_prompt,
+        merge_gap_fill_cuts,
+        rebuild_tracks_from_cuts,
+    )
+
+    if not probe_centers_sec:
+        return plan
+
+    root = project_root or Path.cwd()
+    key = api_key or resolve_gemini_api_key(project_root=root)
+    model_name = model or resolve_gemini_model(project_root=root)
+    duration_sec = float(plan["duration_sec"])
+    existing = ensure_endpoint_cuts(
+        list(plan.get("cuts_sec") or []),
+        duration_sec=duration_sec,
+    )
+    windows = build_listen_windows(
+        probe_centers_sec,
+        duration_sec=duration_sec,
+        half_window_sec=half_window_sec,
+        skip_endpoints=True,
+        probe_centers_sec=probe_centers_sec,
+    )
+    if not windows:
+        return plan
+
+    work_dir.mkdir(parents=True, exist_ok=True)
+    clip_paths: list[tuple[dict[str, Any], Path]] = []
+    for i, win in enumerate(windows):
+        dest = work_dir / f"gapfill_{i:02d}_{float(win['center_sec']):.1f}s.flac"
+        extract_audio_clip(
+            source_audio,
+            dest,
+            start_sec=float(win["start_sec"]),
+            end_sec=float(win["end_sec"]),
+        )
+        clip_paths.append((win, dest))
+
+    prompt = gap_fill_listen_prompt(
+        show_id=str(plan["show_id"]),
+        duration_sec=duration_sec,
+        existing_cuts_sec=existing,
+        windows=windows,
+    )
+    client = genai.Client(api_key=key)
+    parts: list[Any] = [types.Part.from_text(text=prompt)]
+    for win, path in clip_paths:
+        label = (
+            f"\nGap-fill probe around {float(win['center_sec']):.3f}s "
+            f"({float(win['start_sec']):.3f}–{float(win['end_sec']):.3f}s)\n"
+        )
+        parts.append(types.Part.from_text(text=label))
+        parts.append(
+            types.Part.from_bytes(data=path.read_bytes(), mime_type="audio/flac")
+        )
+
+    last_error: Exception | None = None
+    raw: dict[str, Any] | None = None
+    for attempt in range(max_retries):
+        text = ""
+        try:
+            response = _generate_content_with_retries(
+                client=client,
+                model_name=model_name,
+                parts=parts,
+                max_retries=max_retries,
+            )
+            text = _response_text(response)
+            if not text.strip():
+                raise ValueError("Empty Gemini gap-fill response text")
+            raw = parse_model_json(text)
+            break
+        except (json.JSONDecodeError, ValueError, TypeError) as exc:
+            last_error = exc
+            bad = work_dir / f"bad_gapfill_response_{attempt}.txt"
+            bad.write_text(text or repr(exc), encoding="utf-8")
+            if attempt + 1 >= max_retries:
+                raise
+            time.sleep(min(20.0, 2**attempt))
+    if raw is None:
+        assert last_error is not None
+        raise last_error
+
+    proposed = [float(c) for c in raw.get("cuts_sec") or []]
+    # Also honor explicit insert_decisions when cuts_sec is sparse.
+    for decision in raw.get("insert_decisions") or []:
+        action = str(decision.get("action") or "").upper()
+        if action != "INSERT":
+            continue
+        insert_sec = decision.get("insert_sec", decision.get("probe_sec"))
+        if insert_sec is None:
+            continue
+        try:
+            proposed.append(float(insert_sec))
+        except (TypeError, ValueError):
+            continue
+
+    merged = merge_gap_fill_cuts(
+        existing,
+        proposed,
+        duration_sec=duration_sec,
+        min_separation_sec=25.0,
+    )
+    if merged == existing:
+        return plan
+
+    filled = rebuild_tracks_from_cuts(
+        plan,
+        merged,
+        note=(
+            f"Gap-fill INSERT pass added mid cuts from {len(windows)} overlong-gap probes."
+        ),
+    )
+    filled["show_id"] = plan["show_id"]
+    filled["source_path"] = plan.get("source_path")
+    filled["schema_version"] = "1.0.0"
+    filled["duration_sec"] = duration_sec
+    filled["overall_confidence"] = float(
+        raw.get("overall_confidence") or plan.get("overall_confidence") or 0.5
+    )
+    filled["needs_review"] = bool(
+        raw.get("needs_review", plan.get("needs_review", False))
+    )
+    validate_tracking_plan(filled)
+    return filled
 
 
 def speech_anchor_cuts_with_probes(

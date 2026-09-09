@@ -67,6 +67,11 @@ def main() -> int:
         help="Apply speech forward-snap to an existing plan (no Gemini call)",
     )
     parser.add_argument(
+        "--gap-fill",
+        action="store_true",
+        help="Run overlong-gap INSERT listen when the plan looks under-segmented",
+    )
+    parser.add_argument(
         "--reuse-calibration-whisper",
         action="store_true",
         help="Prefer data/calibration/<id>/whisper_segments.json when present",
@@ -155,6 +160,7 @@ def main() -> int:
                 if args.force_speech_snap
                 else None
             ),
+            gap_fill=args.gap_fill,
         )
         if not args.skip_package and (not args.artist or not args.date):
             print(

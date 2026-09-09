@@ -11,6 +11,7 @@ from dat_tracker.energy import propose_cuts_from_audio
 from dat_tracker.silence import run_silencedetect, silence_end_candidates
 from dat_tracker.export_tracks import export_tracks_from_plan
 from dat_tracker.gemini_tracker import (
+    gap_fill_tracking_plan_cuts,
     refine_tracking_plan_cuts,
     request_tracking_plan_from_clips,
     speech_anchor_cuts_with_probes,
@@ -23,6 +24,7 @@ from dat_tracker.refine_cuts import (
     adaptive_speech_snap_look_ahead_sec,
     ensure_endpoint_cuts,
     merge_near_duplicate_cuts,
+    overlong_gap_probe_centers,
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
     snap_cuts_to_nearby_listen_centers,
@@ -86,6 +88,24 @@ def resolve_speech_snap(*, refine: bool, speech_snap: bool | None) -> bool:
     return not refine
 
 
+def should_run_gap_fill(
+    *,
+    cuts_sec: list[float],
+    duration_sec: float,
+    max_seg_sec: float = 480.0,
+) -> bool:
+    """True when the plan has a long segment or too few tracks for its length."""
+    ordered = ensure_endpoint_cuts(cuts_sec, duration_sec=duration_sec)
+    if len(ordered) < 2:
+        return True
+    max_seg = max(b - a for a, b in zip(ordered, ordered[1:], strict=False))
+    track_count = len(ordered) - 1
+    expected_min_tracks = max(4, int(round(duration_sec / 360.0)))
+    return max_seg >= max_seg_sec or (
+        track_count + 1 < expected_min_tracks and max_seg >= 300.0
+    )
+
+
 def run_track_show(
     *,
     source_audio: Path,
@@ -110,6 +130,8 @@ def run_track_show(
     refine_half_window_sec: float | None = None,
     speech_snap: bool | None = None,
     speech_snap_look_ahead_sec: float | None = None,
+    gap_fill: bool = False,
+    gap_fill_max_seg_sec: float = 480.0,
 ) -> dict[str, Any]:
     """Run sparse Gemini tracking and optionally export an etree-style package."""
     root = project_root or Path.cwd()
@@ -175,6 +197,48 @@ def run_track_show(
         ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
         note="Normalized plan endpoints to 0 and duration.",
     )
+    if gap_fill:
+        existing_cuts = list(plan.get("cuts_sec") or [])
+        if should_run_gap_fill(
+            cuts_sec=existing_cuts,
+            duration_sec=duration,
+            max_seg_sec=gap_fill_max_seg_sec,
+        ):
+            listen_pool = sorted(
+                {
+                    float(c)
+                    for c in [
+                        *anchors,
+                        *probes,
+                        *energy_cuts,
+                        *silence_cuts,
+                    ]
+                }
+            )
+            gap_probes = overlong_gap_probe_centers(
+                existing_cuts,
+                duration_sec=duration,
+                candidate_centers=listen_pool,
+                max_seg_sec=gap_fill_max_seg_sec,
+                min_edge_sec=45.0,
+                max_probes_per_gap=2,
+            )
+            if gap_probes:
+                plan = gap_fill_tracking_plan_cuts(
+                    plan,
+                    source_audio=source_audio,
+                    work_dir=paths["work_dir"] / "gemini_gapfill",
+                    probe_centers_sec=gap_probes,
+                    half_window_sec=max(12.0, half_window_sec),
+                    project_root=root,
+                )
+                plan = rebuild_tracks_from_cuts(
+                    plan,
+                    ensure_endpoint_cuts(
+                        list(plan.get("cuts_sec") or []), duration_sec=duration
+                    ),
+                    note="Restored plan endpoints after gap-fill.",
+                )
     if refine:
         plan = refine_tracking_plan_cuts(
             plan,

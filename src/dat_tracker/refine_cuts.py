@@ -259,6 +259,76 @@ def ensure_endpoint_cuts(cuts_sec: list[float], *, duration_sec: float) -> list[
     return out
 
 
+def overlong_gap_probe_centers(
+    cuts_sec: list[float],
+    *,
+    duration_sec: float,
+    candidate_centers: list[float],
+    max_seg_sec: float = 420.0,
+    min_edge_sec: float = 45.0,
+    max_probes_per_gap: int = 3,
+) -> list[float]:
+    """Pick listen centers inside track segments longer than max_seg_sec.
+
+    Used for a second Gemini INSERT pass when the first plan under-segments.
+    Prefers existing speech/energy candidates nearest to evenly spaced targets.
+    """
+    ordered = ensure_endpoint_cuts(cuts_sec, duration_sec=duration_sec)
+    candidates = sorted(float(c) for c in candidate_centers)
+    out: list[float] = []
+    for left, right in zip(ordered, ordered[1:], strict=False):
+        gap = right - left
+        if gap <= max_seg_sec:
+            continue
+        n_need = min(max_probes_per_gap, max(1, int(gap // max_seg_sec)))
+        mids = [
+            c
+            for c in candidates
+            if left + min_edge_sec < c < right - min_edge_sec
+        ]
+        if not mids:
+            # Fall back to geometric midpoints when no classical candidates exist.
+            for i in range(n_need):
+                out.append(left + gap * (i + 1) / (n_need + 1))
+            continue
+        targets = [left + gap * (i + 1) / (n_need + 1) for i in range(n_need)]
+        used: list[float] = []
+        for target in targets:
+            best = None
+            best_d = None
+            for c in mids:
+                if any(abs(c - u) < 30.0 for u in used):
+                    continue
+                d = abs(c - target)
+                if best_d is None or d < best_d:
+                    best, best_d = c, d
+            if best is not None:
+                used.append(best)
+                out.append(best)
+    return sorted({round(c, 3) for c in out})
+
+
+def merge_gap_fill_cuts(
+    existing_cuts: list[float],
+    proposed_cuts: list[float],
+    *,
+    duration_sec: float,
+    min_separation_sec: float = 25.0,
+) -> list[float]:
+    """Union existing plan cuts with newly inserted mid cuts; keep endpoints."""
+    ordered = ensure_endpoint_cuts(
+        [*existing_cuts, *proposed_cuts],
+        duration_sec=duration_sec,
+    )
+    out = [ordered[0]]
+    for c in ordered[1:-1]:
+        if c - out[-1] >= min_separation_sec:
+            out.append(c)
+    if ordered[-1] - out[-1] >= 0.05:
+        out.append(ordered[-1])
+    return ensure_endpoint_cuts(out, duration_sec=duration_sec)
+
+
 def thin_listen_centers(
     *,
     anchors: list[float],
@@ -357,4 +427,57 @@ Rules:
 - Prefer the start of new material (count-in, first note of next song, banter onset).
 - If the proposed cut is already correct, keep it (to_sec == from_sec).
 - tracks may be an empty array; cuts_sec is required.
+"""
+
+
+def gap_fill_listen_prompt(
+    *,
+    show_id: str,
+    duration_sec: float,
+    existing_cuts_sec: list[float],
+    windows: list[dict[str, Any]],
+) -> str:
+    """Prompt: INSERT missing track boundaries inside overlong segments."""
+    win_lines = "\n".join(
+        f"- probe {float(w['center_sec']):.3f}s "
+        f"(clip covers {float(w['start_sec']):.3f}–{float(w['end_sec']):.3f}s)"
+        for w in windows
+    )
+    return f"""You already have a partial tracking plan for a live show. Some segments
+are suspiciously long — listen for *missed* track boundaries and INSERT them.
+
+Show id: {show_id}
+Master duration: {duration_sec:.3f}s
+Existing cuts (including endpoints): {json.dumps(existing_cuts_sec)}
+
+Etree convention: song ends, stage banter, tuning, and song intros are separate
+tracks. Do not leave two songs (or song+banter) glued together.
+
+You get short clips at probe centers inside long segments:
+{win_lines}
+
+For each probe: INSERT a cut near the probe if you hear a real track change
+(applause into banter/new song, count-in, clear song boundary). REJECT if the
+clip is continuous music with no track change.
+
+Return ONLY JSON:
+{{
+  "schema_version": "1.0.0",
+  "show_id": "{show_id}",
+  "duration_sec": {duration_sec:.3f},
+  "cuts_sec": [0.0, ...existing..., ...new inserts..., {duration_sec:.3f}],
+  "tracks": [],
+  "overall_confidence": 0.0,
+  "needs_review": false,
+  "notes": ["INSERT@t or REJECT@t decisions"],
+  "insert_decisions": [
+    {{"probe_sec": 687.0, "insert_sec": 690.5, "action": "INSERT", "reason": "applause into banter"}}
+  ]
+}}
+
+Rules:
+- cuts_sec MUST begin with 0.0 and end with duration_sec.
+- Keep all existing cuts unless clearly wrong; ADD inserts for missed boundaries.
+- Prefer insert_sec at the start of new material inside the clip.
+- tracks may be empty; cuts_sec is required.
 """

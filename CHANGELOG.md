@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rebalance the Gemini listen prompt toward etree banter/intro tracks and against under-segmentation; widen long-show refine windows to ±50s.
 - Retry Gemini generate_content on transient HTTP/TLS transport errors (e.g. SSL bad-record-mac) in addition to 429/503.
 - Skip refine_decisions entries with null or non-numeric from/to times instead of crashing the refine pass.
+- Add an optional overlong-gap Gemini INSERT pass (`--gap-fill`, off by default) for clearly under-segmented plans.
+- Retry Gemini refine/gap-fill when the model returns truncated or invalid JSON, matching the first-listen retry behavior.
 - Rename project and Python package from `bluegrass-dat-tracker` / `bluegrass_dat_tracker` to `dat-tracker` / `dat_tracker`.
 - Change Phase 2 from human-in-the-loop waveform review to LLM-powered automatic tracking with calibration-gated release and exceptional-only human spot-checks.
 - Parse Live Bluegrass dump filenames with leading `YYMMDD` / `YYYYMMDD` dates and known artist abbrevs into catalog rows; coalesce multipart raw FLACs.
