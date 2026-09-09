@@ -14,6 +14,7 @@ from dat_tracker.gemini_tracker import (
     gap_fill_tracking_plan_cuts,
     refine_tracking_plan_cuts,
     request_tracking_plan_from_clips,
+    resolve_escalate_model,
     speech_anchor_cuts_with_probes,
 )
 from dat_tracker.package import package_show_from_plan
@@ -102,7 +103,34 @@ def should_run_gap_fill(
     track_count = len(ordered) - 1
     expected_min_tracks = max(4, int(round(duration_sec / 360.0)))
     return max_seg >= max_seg_sec or (
-        track_count + 1 < expected_min_tracks and max_seg >= 300.0
+        track_count < expected_min_tracks and max_seg >= 300.0
+    )
+
+
+def should_escalate_to_pro(
+    *,
+    cuts_sec: list[float],
+    duration_sec: float,
+    max_seg_sec: float = 600.0,
+) -> bool:
+    """Escalate Flash→Pro only for clearly under-segmented longer shows.
+
+    Short, already-dense plans (e.g. Sam Bush ~20 min) must not burn Pro just
+    because one mid segment is a bit long.
+    """
+    if duration_sec < 1500.0:
+        # Short shows: only escalate on extreme under-segmentation.
+        ordered = ensure_endpoint_cuts(cuts_sec, duration_sec=duration_sec)
+        if len(ordered) < 2:
+            return True
+        max_seg = max(b - a for a, b in zip(ordered, ordered[1:], strict=False))
+        track_count = len(ordered) - 1
+        expected_min_tracks = max(3, int(round(duration_sec / 360.0)))
+        return track_count < expected_min_tracks and max_seg >= 480.0
+    return should_run_gap_fill(
+        cuts_sec=cuts_sec,
+        duration_sec=duration_sec,
+        max_seg_sec=max_seg_sec,
     )
 
 
@@ -197,7 +225,56 @@ def run_track_show(
         ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
         note="Normalized plan endpoints to 0 and duration.",
     )
-    if gap_fill:
+    escalate = should_escalate_to_pro(
+        cuts_sec=list(plan.get("cuts_sec") or []),
+        duration_sec=duration,
+        max_seg_sec=max(gap_fill_max_seg_sec, 600.0),
+    )
+    escalate_model = resolve_escalate_model(project_root=root, escalate=escalate)
+    # Gap-fill when explicitly requested, or automatically when under-segmented
+    # (then use Pro for INSERT + refine).
+    do_gap_fill = gap_fill or escalate
+    if do_gap_fill and escalate:
+        listen_pool = sorted(
+            {
+                float(c)
+                for c in [
+                    *anchors,
+                    *probes,
+                    *energy_cuts,
+                    *silence_cuts,
+                ]
+            }
+        )
+        gap_probes = overlong_gap_probe_centers(
+            list(plan.get("cuts_sec") or []),
+            duration_sec=duration,
+            candidate_centers=listen_pool,
+            max_seg_sec=gap_fill_max_seg_sec,
+            min_edge_sec=45.0,
+            max_probes_per_gap=2,
+        )
+        if gap_probes:
+            plan = gap_fill_tracking_plan_cuts(
+                plan,
+                source_audio=source_audio,
+                work_dir=paths["work_dir"] / "gemini_gapfill",
+                probe_centers_sec=gap_probes,
+                half_window_sec=max(12.0, half_window_sec),
+                project_root=root,
+                model=escalate_model,
+            )
+            plan = rebuild_tracks_from_cuts(
+                plan,
+                ensure_endpoint_cuts(
+                    list(plan.get("cuts_sec") or []), duration_sec=duration
+                ),
+                note=(
+                    f"Restored plan endpoints after gap-fill "
+                    f"(model={escalate_model})."
+                ),
+            )
+    elif gap_fill:
         existing_cuts = list(plan.get("cuts_sec") or [])
         if should_run_gap_fill(
             cuts_sec=existing_cuts,
@@ -246,11 +323,15 @@ def run_track_show(
             work_dir=paths["work_dir"] / "gemini_refine",
             half_window_sec=refine_window,
             project_root=root,
+            model=escalate_model if escalate else None,
         )
         plan = rebuild_tracks_from_cuts(
             plan,
             ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
-            note="Restored plan endpoints after refine.",
+            note=(
+                "Restored plan endpoints after refine"
+                + (f" (escalated model={escalate_model})." if escalate else ".")
+            ),
         )
     if do_speech_snap:
         islands = merge_speech_islands(

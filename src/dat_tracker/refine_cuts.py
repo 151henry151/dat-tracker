@@ -78,6 +78,50 @@ def snap_cuts_forward_to_speech(
     return mono
 
 
+def snap_clearly_early_cuts_to_speech(
+    cuts_sec: list[float],
+    *,
+    speech_islands: list[dict[str, Any]],
+    duration_sec: float,
+    min_early_sec: float = 15.0,
+    max_early_sec: float = 35.0,
+    already_near_sec: float = 5.0,
+) -> list[float]:
+    """Snap mid cuts that sit clearly early (in applause) to the next speech onset.
+
+    Unlike the broad forward speech snap, this only moves a cut when:
+    - the cut is *not* already within already_near_sec of any speech onset, and
+    - the nearest speech onset is 15–35s ahead.
+
+    That targets "cut on last note / mid-applause" without yanking a correct
+    song-start cut into mid-song vocals. Prefers the *first* onset in window.
+    """
+    onsets = sorted(float(i["start"]) for i in speech_islands)
+    ordered = sorted(float(c) for c in cuts_sec)
+    if not ordered:
+        return []
+    out = [ordered[0]]
+    for cut in ordered[1:-1]:
+        if any(abs(o - cut) <= already_near_sec for o in onsets):
+            out.append(cut)
+            continue
+        candidates = [
+            o for o in onsets if cut + min_early_sec <= o <= cut + max_early_sec
+        ]
+        out.append(candidates[0] if candidates else cut)
+    out.append(
+        ordered[-1] if abs(ordered[-1] - duration_sec) <= 0.05 else float(duration_sec)
+    )
+    mono: list[float] = [out[0]]
+    for c in out[1:]:
+        if c < mono[-1] + 0.05:
+            continue
+        mono.append(c)
+    if abs(mono[-1] - duration_sec) > 0.05:
+        mono.append(float(duration_sec))
+    return mono
+
+
 def snap_cuts_to_nearby_silence_ends(
     cuts_sec: list[float],
     *,

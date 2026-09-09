@@ -18,6 +18,9 @@ from dat_tracker.listen_clips import (
 )
 from dat_tracker.tracking_plan import ensure_plan_tracks, validate_tracking_plan
 
+DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.6-flash"
+DEFAULT_GEMINI_PRO_MODEL = "gemini-3.1-pro-preview"
+
 
 def resolve_gemini_api_key(*, project_root: Path | None = None) -> str:
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -39,7 +42,23 @@ def resolve_gemini_model(*, project_root: Path | None = None) -> str:
         return model
     root = project_root or Path.cwd()
     vals = load_dotenv_file(root / ".env")
-    return vals.get("DAT_TRACKER_LLM_MODEL") or "gemini-3.6-flash"
+    return vals.get("DAT_TRACKER_LLM_MODEL") or DEFAULT_GEMINI_FLASH_MODEL
+
+
+def resolve_escalate_model(
+    *,
+    project_root: Path | None = None,
+    escalate: bool,
+) -> str:
+    """Return Pro when escalate=True, otherwise the default Flash/env model."""
+    if not escalate:
+        return resolve_gemini_model(project_root=project_root)
+    pro = os.environ.get("DAT_TRACKER_LLM_PRO_MODEL")
+    if pro:
+        return pro
+    root = project_root or Path.cwd()
+    vals = load_dotenv_file(root / ".env")
+    return vals.get("DAT_TRACKER_LLM_PRO_MODEL") or DEFAULT_GEMINI_PRO_MODEL
 
 
 def request_tracking_plan_from_clips(
