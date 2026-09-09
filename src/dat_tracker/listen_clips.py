@@ -175,6 +175,14 @@ energy bump. Typical bluegrass songs are often ~2–6 minutes; a 7–12 minute
 song with no banter may still be one track, but two clear song sections with
 applause/count-in between should be split.
 
+Segues (required): when one song flows directly into the next with no real
+pause — the next song's count-in or first notes start immediately, no dead
+air, no applause, no stage banter breaking it up first — that is a SEGUE, not
+a track boundary. REJECT that cut. Mark segue_into_next=true on the current
+track instead; etree convention keeps a segued pair as one physical track,
+titled "Song A > Song B". Only split when there is a real gap: applause,
+stage banter, tuning, or silence between the two songs.
+
 Etree convention (required): keep stage banter, tuning, song intros, and encore
 breaks as their *own* tracks when they are distinct from the songs. Do not fold
 banter into the previous or next song just to reduce track count.

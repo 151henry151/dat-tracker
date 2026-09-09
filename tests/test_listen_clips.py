@@ -95,6 +95,30 @@ def test_tracking_listen_prompt_requires_rejecting_false_candidates():
     assert "missing a real boundary" in prompt.lower()
 
 
+def test_tracking_listen_prompt_calls_out_segues():
+    # Real train over-segmentation (los1997-04-03.kpig): the model correctly
+    # heard "song finishes and count-in starts next song" and split there,
+    # but Jon's reference kept that pair as one segued track (etree
+    # convention: "Song A > Song B" in one file). The old prompt actively
+    # told the model to split "two clear song sections with ... count-in
+    # between", with no exception for a direct segue (no real pause).
+    prompt = tracking_listen_prompt(
+        show_id="los",
+        duration_sec=100.0,
+        candidate_cuts_sec=[0.0, 40.0, 100.0],
+        windows=[
+            {
+                "center_sec": 40.0,
+                "start_sec": 32.0,
+                "end_sec": 48.0,
+                "role": "candidate",
+            }
+        ],
+    )
+    assert "segue" in prompt.lower()
+    assert "segue_into_next" in prompt
+
+
 def test_parse_model_json_accepts_fenced_block():
     raw = """Here is the plan:
 ```json

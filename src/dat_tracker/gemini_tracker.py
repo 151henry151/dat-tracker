@@ -156,7 +156,7 @@ def request_tracking_plan_from_clips(
                     )
                 ],
                 config=types.GenerateContentConfig(
-                    temperature=0.2,
+                    temperature=0.0,
                     response_mime_type="application/json",
                     max_output_tokens=16384,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(
@@ -251,7 +251,7 @@ def _generate_content_with_retries(
                 model=model_name,
                 contents=[types.Content(role="user", parts=parts)],
                 config=types.GenerateContentConfig(
-                    temperature=0.2,
+                    temperature=0.0,
                     response_mime_type="application/json",
                     max_output_tokens=16384,
                     automatic_function_calling=types.AutomaticFunctionCallingConfig(

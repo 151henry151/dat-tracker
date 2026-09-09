@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Widen the `--gap-fill` INSERT listen clip from ±12s to ±45s so a probe built from a geometric estimate still covers the real transition when placement is off by tens of seconds.
 - Tighten the gap-fill INSERT prompt to reject a dynamic shift inside one long song (solo, jam, tempo change) unless the model can name a concrete new-track marker (applause, spoken word, count-in, a new song starting from a stop); require `insert_decisions.reason` to name that marker.
 - Probe every already-rejected classical candidate inside an overlong gap when there are only a few of them (`sparse_candidate_limit`, default 3), instead of only the one nearest a geometric midpoint — a real miss had the true boundary on the second-nearest candidate. Gaps with more candidates than that (a busy jam/solo song) keep the original single nearest-to-target probe so a dense false-candidate cluster does not get multiple chances to trigger a false INSERT.
+- Lower Gemini `generate_content` temperature from 0.2 to 0.0 for both the first listen and refine/gap-fill passes. Re-running the same show with no code change had swung Tier B train F1 by up to 0.2-0.3 in either direction, making single-run comparisons unreliable; at temperature 0.0 one show reproduced an identical F1 across two independent fresh runs, though it does not fully eliminate variance (observed on another show).
+
+### Changed
+
+- Add explicit segue guidance to the first-listen prompt: a song flowing directly into the next with no real pause (count-in/first notes starting immediately, no applause/banter/silence) is not a track boundary — mark `segue_into_next` instead of splitting, per etree "Song A > Song B" convention. The prompt previously told the model to split "two clear song sections with ... count-in between" with no segue exception at all.
 
 ### Added
 
