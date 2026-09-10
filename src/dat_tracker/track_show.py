@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dat_tracker.boundaries import probe_duration_seconds, summarize_comparison
-from dat_tracker.energy import propose_cuts_from_audio
+from dat_tracker.energy import propose_cuts_from_audio, silence_ends_with_rms_rise
 from dat_tracker.silence import run_silencedetect, silence_end_candidates
 from dat_tracker.export_tracks import export_tracks_from_plan
 from dat_tracker.gemini_tracker import (
@@ -26,6 +26,7 @@ from dat_tracker.refine_cuts import (
     ensure_endpoint_cuts,
     merge_near_duplicate_cuts,
     overlong_gap_probe_centers,
+    polish_early_cuts_to_silence_ends,
     rebuild_tracks_from_cuts,
     snap_cuts_forward_to_speech,
     snap_cuts_to_nearby_listen_centers,
@@ -149,7 +150,7 @@ def run_track_show(
     transfer: str | None = None,
     project_root: Path | None = None,
     whisper_model: str = "base",
-    half_window_sec: float = 8.0,
+    half_window_sec: float = 12.0,
     max_gap_sec: float = 240.0,
     probe_step_sec: float = 90.0,
     whisper_cache_path: Path | None = None,
@@ -160,6 +161,9 @@ def run_track_show(
     speech_snap_look_ahead_sec: float | None = None,
     gap_fill: bool = False,
     gap_fill_max_seg_sec: float = 480.0,
+    # Off by default: a 30s forward twin roughly doubled clip count and caused
+    # over-segmentation regressions on train; enable explicitly when testing.
+    forward_scrub_offset_sec: float = 0.0,
 ) -> dict[str, Any]:
     """Run sparse Gemini tracking and optionally export an etree-style package."""
     root = project_root or Path.cwd()
@@ -180,11 +184,16 @@ def run_track_show(
         run_silencedetect(source_audio, noise_db=-40, min_silence_sec=1.2),
         min_silence_sec=1.2,
     )
+    # Denser mid-gap probes on longer shows to reduce far-miss under-segmentation
+    # (ymsb-class) without globally enabling gap-fill.
+    effective_probe_step = (
+        min(probe_step_sec, 60.0) if duration >= 1000.0 else probe_step_sec
+    )
     anchors, probes = speech_anchor_cuts_with_probes(
         segs,
         duration_sec=duration,
         max_gap_sec=max_gap_sec,
-        probe_step_sec=probe_step_sec,
+        probe_step_sec=effective_probe_step,
         energy_cuts=energy_cuts,
         silence_cuts=silence_cuts,
     )
@@ -218,6 +227,7 @@ def run_track_show(
         probe_centers_sec=probes,
         work_dir=paths["listen_dir"],
         half_window_sec=half_window_sec,
+        forward_scrub_offset_sec=forward_scrub_offset_sec,
         project_root=root,
     )
     plan = rebuild_tracks_from_cuts(
@@ -403,6 +413,45 @@ def run_track_show(
             center_snapped,
             evidence_by_cut=evidence,
             note="Snapped clearly-offset mid cuts onto nearest listen centers (±40s).",
+        )
+    # Dense silence ends: walk clearly-early cuts forward onto next-track starts.
+    polish_silence_ends = silence_end_candidates(
+        run_silencedetect(source_audio, noise_db=-35, min_silence_sec=0.3),
+        min_silence_sec=0.3,
+    )
+    islands = merge_speech_islands(
+        filter_plausible_speech_segments(segs, max_seg_sec=20.0)
+    )
+    speech_onsets = [float(i["start"]) for i in islands]
+    # Dense energy peaks confirm silence ends that lead into new material.
+    polish_energy = propose_cuts_from_audio(source_audio, min_separation_sec=5.0)
+    risen = silence_ends_with_rms_rise(source_audio, polish_silence_ends)
+    confirm_times = sorted({*polish_energy, *(s + 0.5 for s in risen)})
+    early_polished = polish_early_cuts_to_silence_ends(
+        list(plan.get("cuts_sec") or []),
+        silence_ends=polish_silence_ends,
+        duration_sec=duration,
+        min_early_sec=12.0,
+        max_early_sec=40.0,
+        already_near_sec=5.0,
+        speech_onsets=speech_onsets,
+        confirm_times=confirm_times,
+        confirm_within_sec=8.0,
+    )
+    if early_polished != list(plan.get("cuts_sec") or []):
+        evidence = {
+            c: [f"EARLY_SILENCE_POLISH@{c}"]
+            for c in early_polished[1:-1]
+            if not any(abs(c - o) <= 0.05 for o in (plan.get("cuts_sec") or []))
+        }
+        plan = rebuild_tracks_from_cuts(
+            plan,
+            early_polished,
+            evidence_by_cut=evidence,
+            note=(
+                "Polished clearly-early mid cuts forward onto the last confirmed "
+                "silence end in a 12–40s look-ahead (silence + energy/speech rise)."
+            ),
         )
     dedupe_sep = adaptive_min_separation_sec(duration)
     deduped = merge_near_duplicate_cuts(

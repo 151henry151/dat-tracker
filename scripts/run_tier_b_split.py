@@ -30,6 +30,18 @@ def main() -> int:
         help="Gemini refine pass (default: on; use --no-refine to skip)",
     )
     parser.add_argument(
+        "--gap-fill",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable overlong-gap INSERT listen (default: off; escalate may still gap-fill)",
+    )
+    parser.add_argument(
+        "--gap-fill-max-seg-sec",
+        type=float,
+        default=320.0,
+        help="Segment length that triggers --gap-fill (default: 320 for train campaigns)",
+    )
+    parser.add_argument(
         "--skip-package",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -57,11 +69,15 @@ def main() -> int:
             "--reuse-calibration-whisper",
             "--tolerance",
             str(args.tolerance),
+            "--gap-fill-max-seg-sec",
+            str(args.gap_fill_max_seg_sec),
         ]
         if args.skip_package:
             cmd.append("--skip-package")
         if args.refine:
             cmd.append("--refine")
+        if args.gap_fill:
+            cmd.append("--gap-fill")
         print("RUN", " ".join(cmd), flush=True)
         proc = subprocess.run(cmd, cwd=str(ROOT))
         if proc.returncode != 0:

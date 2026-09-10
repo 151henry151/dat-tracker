@@ -30,9 +30,21 @@ def build_listen_windows(
     half_window_sec: float = 8.0,
     skip_endpoints: bool = True,
     probe_centers_sec: list[float] | None = None,
+    forward_scrub_offset_sec: float = 0.0,
+    forward_scrub_half_window_sec: float | None = None,
 ) -> list[dict[str, float | str]]:
-    """Build clamped [start,end] windows centered on mid-show candidates/probes."""
+    """Build clamped [start,end] windows centered on mid-show candidates/probes.
+
+    When forward_scrub_offset_sec > 0, also emit a second window per candidate
+    centered offset seconds later (role=forward_scrub) so the model can hear
+    the next-track start when the proposal sits mid-applause.
+    """
     probes = list(probe_centers_sec or [])
+    fwd_half = (
+        float(forward_scrub_half_window_sec)
+        if forward_scrub_half_window_sec is not None
+        else float(half_window_sec)
+    )
     windows: list[dict[str, float | str]] = []
     for cut in candidate_cuts_sec:
         c = float(cut)
@@ -55,6 +67,22 @@ def build_listen_windows(
                 "role": role,
             }
         )
+        if forward_scrub_offset_sec > 0 and role == "candidate":
+            fc = c + float(forward_scrub_offset_sec)
+            if fc >= duration_sec - 0.05:
+                continue
+            f_start = max(0.0, fc - fwd_half)
+            f_end = min(float(duration_sec), fc + fwd_half)
+            if f_end - f_start < 0.2:
+                continue
+            windows.append(
+                {
+                    "center_sec": fc,
+                    "start_sec": f_start,
+                    "end_sec": f_end,
+                    "role": "forward_scrub",
+                }
+            )
     return windows
 
 
@@ -160,8 +188,12 @@ the audio justifies it:
 {json.dumps(candidate_cuts_sec)}
 
 You are given short audio clips only (cost control). Roles:
-- candidate: proposed boundary — ACCEPT only if you hear a real track change
-  (song ends / new song starts / banter or intro begins as its own track).
+- candidate: proposed boundary — ACCEPT only if this is (near) where the *next*
+  track should begin. REJECT mid-song energy bumps and continuous music.
+- forward_scrub: clip centered ~25–35s after a candidate. Use it to hear whether
+  the real next-track start is *later* than the candidate (common: candidate sits
+  on last note / mid-applause; true cut is banter onset or next song count-in).
+  If so, SNAP the cut forward to that later start — do not keep the early time.
 - gap_probe: exploratory scrub in a long span — ADD a cut only if you hear a
   missed boundary near the probe center; otherwise ignore.
 
@@ -169,11 +201,28 @@ Clips:
 {win_lines}
 
 Listen like a careful human in Audacity.
-For each candidate clip, decide ACCEPT, REJECT, or SNAP (± a few seconds).
-REJECT when the clip is continuous music with no track change, or a mid-song
-energy bump. Typical bluegrass songs are often ~2–6 minutes; a 7–12 minute
-song with no banter may still be one track, but two clear song sections with
-applause/count-in between should be split.
+For each candidate, decide ACCEPT, REJECT, or SNAP (± seconds).
+
+CRITICAL placement rule (etree): the cut marks where the *next* track begins —
+first word of banter, tuning, count-in, or first note of the next song. Trailing
+applause and the previous song's last notes belong on the *previous* track.
+Do NOT place a cut on "song ends" / mid-applause if the next track starts later.
+A cut that is 15–40 seconds early is a false placement even if a song is ending.
+
+REJECT hatch (required): if the candidate clip (and any forward_scrub twin) shows
+continuous music / mid-song energy with no real track change, REJECT. Do not SNAP
+onto a later moment just because something happens in the forward clip — inventing
+a boundary causes over-segmentation. Only SNAP forward when you can name the new
+track start (banter onset, count-in, first note after a real gap).
+
+Few-shot policy examples (text only):
+- Wrong: cut at last chord of song A while crowd is still clapping.
+- Right: cut at the first spoken word of stage banter, or the count-in / first
+  note of song B after that applause (often 15–40s later).
+- Wrong: ACCEPT a candidate mid-solo because energy shifted.
+- Right: REJECT that candidate; one long song stays one track.
+- Wrong: SNAP forward into a solo section because the forward_scrub clip is busy.
+- Right: REJECT when neither clip shows a real song/banter boundary.
 
 Segues (required): when one song flows directly into the next with no real
 pause — the next song's count-in or first notes start immediately, no dead
@@ -187,9 +236,8 @@ Etree convention (required): keep stage banter, tuning, song intros, and encore
 breaks as their *own* tracks when they are distinct from the songs. Do not fold
 banter into the previous or next song just to reduce track count.
 
-Place each cut where the *next* track begins (first word of banter, count-in, or
-first note of the next song)—usually after trailing applause that still belongs
-on the previous track.
+Typical bluegrass songs are often ~2–6 minutes; a 7–12 minute song with no
+banter may still be one track.
 
 Return ONLY a JSON object matching this shape (no markdown):
 {{
@@ -219,6 +267,8 @@ Rules:
 - cuts_sec must start at 0 and end at duration_sec.
 - Drop mid-song false positives; keep real song→song and song→banter boundaries.
 - Missing a real boundary is as bad as keeping a false one.
+- Prefer SNAP forward from applause/song-end onto next-track start over leaving
+  an early cut.
 - You may add a cut near a gap_probe if the audio clearly shows a missed boundary.
 - Prefer "tracks": [] and put ACCEPT/REJECT/SNAP decisions in notes to keep JSON small;
   cuts_sec is required. Titles may be null/omitted when tracks is empty.

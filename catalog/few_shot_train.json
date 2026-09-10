@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Train-only few-shot transition exemplars for sparse Gemini listen (never holdout/Tier A).",
+  "examples": [
+    {
+      "show_id": "sbb2001-04-27.flac16",
+      "cut_sec": 375.3,
+      "label": "next track starts after applause into new material",
+      "audio": "data/calibration/sbb2001-04-27.flac16/synthetic_continuous.flac"
+    },
+    {
+      "show_id": "lke2006-11-10.early",
+      "cut_sec": 1044.1,
+      "label": "banter/song start — cut here, not 20s earlier in applause",
+      "audio": "data/calibration/lke2006-11-10.early/synthetic_continuous.flac"
+    },
+    {
+      "show_id": "crnml2002-08-30.flac16",
+      "cut_sec": 245.0,
+      "label": "next-track start after trailing applause",
+      "audio": "data/calibration/crnml2002-08-30.flac16/synthetic_continuous.flac"
+    }
+  ]
+}

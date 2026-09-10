@@ -113,6 +113,41 @@ def extract_mono_pcm(
     return subprocess.run(cmd, check=True, capture_output=True).stdout
 
 
+def silence_ends_with_rms_rise(
+    path: Path,
+    silence_ends: list[float],
+    *,
+    sample_rate: int = 2000,
+    hop: int = 2000,
+    look_back_sec: float = 1.0,
+    look_ahead_sec: float = 4.0,
+    rise_ratio: float = 1.1,
+    min_after_rms: float = 30.0,
+) -> list[float]:
+    """Return silence ends followed by a sustained RMS rise (next-track onset)."""
+    pcm = extract_mono_pcm(path, sample_rate=sample_rate)
+    rms = frame_rms_from_pcm(pcm, hop=hop)
+    if not rms:
+        return []
+    frame_sec = hop / float(sample_rate)
+    out: list[float] = []
+    for s in silence_ends:
+        t = float(s)
+        i0 = max(0, int((t - look_back_sec) / frame_sec))
+        i1 = max(0, int(t / frame_sec))
+        j0 = max(0, int(t / frame_sec))
+        j1 = min(len(rms), int((t + look_ahead_sec) / frame_sec))
+        before = rms[i0:i1]
+        after = rms[j0:j1]
+        if not before or not after:
+            continue
+        mb = sum(before) / len(before)
+        ma = sum(after) / len(after)
+        if ma >= mb * rise_ratio and ma >= min_after_rms:
+            out.append(t)
+    return out
+
+
 def propose_cuts_from_audio(
     path: Path,
     *,

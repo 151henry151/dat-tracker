@@ -122,6 +122,73 @@ def snap_clearly_early_cuts_to_speech(
     return mono
 
 
+def polish_early_cuts_to_silence_ends(
+    cuts_sec: list[float],
+    *,
+    silence_ends: list[float],
+    duration_sec: float,
+    min_early_sec: float = 12.0,
+    max_early_sec: float = 40.0,
+    already_near_sec: float = 5.0,
+    speech_onsets: list[float] | None = None,
+    confirm_times: list[float] | None = None,
+    confirm_within_sec: float = 8.0,
+) -> list[float]:
+    """Move clearly-early mid cuts forward onto a confirmed silence end.
+
+    Gemini often lands mid-applause / song-end while etree cuts start the *next*
+    track after the gap (often 15–40s later). Among silence ends in
+    [cut+min_early, cut+max_early], prefer the *last* that is followed within
+    confirm_within_sec by a confirmation time (speech onset or energy rise).
+    Unconfirmed blips (breaths, rests) are ignored so we do not overshoot into
+    the next song. Skip when the cut is already near a silence end (already at
+    a transition); do not skip merely because Whisper heard speech near an
+    early/wrong cut — that blocked real near-miss polish on train shows.
+    """
+    ends = sorted(float(s) for s in silence_ends)
+    onsets = sorted(float(o) for o in (speech_onsets or []))
+    confirms = sorted(float(t) for t in (confirm_times or []))
+    confirm_pool = sorted({*confirms, *onsets})
+    ordered = sorted(float(c) for c in cuts_sec)
+    if not ordered:
+        return []
+    out = [ordered[0]]
+    for cut in ordered[1:-1]:
+        if any(abs(s - cut) <= already_near_sec for s in ends):
+            out.append(cut)
+            continue
+        window = [
+            s for s in ends if cut + min_early_sec <= s <= cut + max_early_sec
+        ]
+        confirmed = [
+            s
+            for s in window
+            if any(s < t <= s + confirm_within_sec for t in confirm_pool)
+        ]
+        if confirmed:
+            out.append(confirmed[-1])
+        elif window and not confirm_pool:
+            # No confirm channel supplied: legacy last-silence behavior.
+            out.append(window[-1])
+        elif window and (window[-1] - cut) <= 25.0:
+            # Short-range fallback when confirms miss soft onsets (still
+            # blocked for long 25–40s walks that need a real rise).
+            out.append(window[-1])
+        else:
+            out.append(cut)
+    out.append(
+        ordered[-1] if abs(ordered[-1] - duration_sec) <= 0.05 else float(duration_sec)
+    )
+    mono: list[float] = [out[0]]
+    for c in out[1:]:
+        if c < mono[-1] + 0.05:
+            continue
+        mono.append(c)
+    if abs(mono[-1] - duration_sec) > 0.05:
+        mono.append(float(duration_sec))
+    return mono
+
+
 def snap_cuts_to_nearby_silence_ends(
     cuts_sec: list[float],
     *,
@@ -385,6 +452,26 @@ def overlong_gap_probe_centers(
     return sorted({round(c, 3) for c in out})
 
 
+def preserve_well_spaced_prior_cuts(
+    prior_cuts: list[float],
+    new_cuts: list[float],
+    *,
+    duration_sec: float,
+    min_separation_sec: float = 45.0,
+) -> list[float]:
+    """Keep prior mid cuts that Pro/refine dropped if they stay well-spaced.
+
+    Escalate/refine can collapse a reasonable Flash lattice. Re-insert any prior
+    mid cut that is at least min_separation_sec from every surviving new cut.
+    """
+    merged = ensure_endpoint_cuts(list(new_cuts), duration_sec=duration_sec)
+    prior = ensure_endpoint_cuts(list(prior_cuts), duration_sec=duration_sec)
+    for c in prior[1:-1]:
+        if all(abs(c - n) >= min_separation_sec for n in merged):
+            merged.append(float(c))
+    return ensure_endpoint_cuts(merged, duration_sec=duration_sec)
+
+
 def merge_gap_fill_cuts(
     existing_cuts: list[float],
     proposed_cuts: list[float],
@@ -502,6 +589,8 @@ Rules:
 - cuts_sec MUST begin with 0.0 and end with duration_sec (never omit endpoints).
 - You may move mid cuts earlier/later within the clip window.
 - Prefer the start of new material (count-in, first note of next song, banter onset).
+- If the proposed cut sits on last note / mid-applause and the next track starts
+  later in the clip, SNAP forward — do not keep the early time.
 - If the proposed cut is already correct, keep it (to_sec == from_sec).
 - tracks may be an empty array; cuts_sec is required.
 """

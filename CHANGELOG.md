@@ -7,8 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Freeze Baseline A for the shipping-gates campaign: Tier B train mean F1 0.755 / min 0.533 / track |Δ|≤1 100% (pre-placement Gemini + early silence polish); document in `docs/baseline_a.md`.
+- Harden early silence polish with RMS-rise / energy confirmation, short-range fallback, and speech/energy confirm channels; add `silence_ends_with_rms_rise`.
+- Add train-only audio few-shot exemplars (`catalog/few_shot_train.json`) into the first Gemini listen pass.
+- Add `preserve_well_spaced_prior_cuts` so Pro/refine cannot silently drop a well-spaced Flash mid-cut lattice.
+- Add `--gap-fill` / `--gap-fill-max-seg-sec` flags to `scripts/run_tier_b_split.py` for guarded far-miss campaigns.
+
 ### Changed
 
+- Soft-fail Gemini refine when JSON remains invalid after retries (keep the pre-refine plan) so long Tier A shows are not aborted mid-pipeline.
+- Add an explicit REJECT hatch to the listen prompt: do not invent SNAP-forward boundaries when neither candidate nor forward_scrub shows a real transition.
+- Densify mid-gap listen probes (60s step) on shows ≥1000s to reduce far-miss under-segmentation.
+- Rewrite the first-listen prompt so ACCEPT/SNAP targets *next-track starts* (not song-end / mid-applause), add text few-shot placement examples, and document optional `forward_scrub` clips.
+- Widen default first-listen half-window from 8s to 12s (forward scrub stays off by default after a train regression when enabled at +30s).
+- After listen-center snap, polish clearly-early mid cuts forward onto the last dense silence end in a 12–45s look-ahead (`polish_early_cuts_to_silence_ends`).
+- Strengthen refine prompt guidance to SNAP forward from applause/song-end onto next-track starts.
 - Depersonalize maintainer-specific paths and credit defaults in PLAN/AGENTS/docs for public publication; default `--tracker` credit string is `dat-tracker`.
 - Expand the README Status section with done / in-progress / calibration snapshot / roadmap.
 - Ignore `data/calibration_tier_a/**` local extracts (absolute paths) the same way as other media under `data/`.

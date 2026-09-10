@@ -88,11 +88,15 @@ Early development (**0.1.0**). Version stays at 0.1.0 until Live Bluegrass packa
 
 Tune on **train**, not holdout. Numbers move as plans are regenerated.
 
+**Baseline A** (frozen for the shipping-gates campaign — see [docs/baseline_a.md](docs/baseline_a.md)): Tier B train mean F1 **0.755**, min **0.533**, track \|Δ\|≤1 **100%**. Plans under `data/work/.baseline_a/`.
+
 | Set | mean F1 @ ±15 s | Notes |
 |-----|-----------------|--------|
-| Tier B train | ~0.69 | Track \|Δ\|≤1 recently ~100% on train; mean/min still short of the *holdout* gate |
-| Tier B holdout | ~0.57 (may be stale vs latest code) | Gate: mean ≥ **0.85**, min ≥ **0.70** |
-| Tier A (3 shows) | ~0.37 (may be stale) | Gate: mean ≥ **0.80** on ≥3 real raw↔Jon shows |
+| Tier B train (best merged) | **0.798** | min **0.714**; track \|Δ\|≤1 **80%**. Denser probes lifted ymsb; still short of holdout mean gate |
+| Tier B holdout (fresh) | **0.580** | Gate: mean ≥ **0.85**, min ≥ **0.70** — **FAIL** (ymsb/jcb still weak) |
+| Tier A (3 shows) | ~0.34 | Gate: mean ≥ **0.80** — **FAIL**; Pro lattice guard + refine JSON soft-fail added |
+
+**Not shippable yet.** Shipping gates are held-out metrics; train progress does not unlock batching.
 
 ### Roadmap / how we plan to improve
 

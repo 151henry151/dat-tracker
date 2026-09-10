@@ -22,6 +22,38 @@ DEFAULT_GEMINI_FLASH_MODEL = "gemini-3.6-flash"
 DEFAULT_GEMINI_PRO_MODEL = "gemini-3.1-pro-preview"
 
 
+def load_train_few_shot_examples(
+    *,
+    project_root: Path,
+    exclude_show_id: str,
+    max_examples: int = 3,
+) -> list[dict[str, Any]]:
+    """Load train-only few-shot transition exemplars (skip missing audio / self)."""
+    path = project_root / "catalog" / "few_shot_train.json"
+    if not path.is_file():
+        return []
+    payload = json.loads(path.read_text())
+    out: list[dict[str, Any]] = []
+    for ex in payload.get("examples") or []:
+        sid = str(ex.get("show_id") or "")
+        if sid == exclude_show_id:
+            continue
+        audio = project_root / str(ex.get("audio") or "")
+        if not audio.is_file():
+            continue
+        out.append(
+            {
+                "show_id": sid,
+                "cut_sec": float(ex["cut_sec"]),
+                "label": str(ex.get("label") or "correct next-track start"),
+                "audio": audio,
+            }
+        )
+        if len(out) >= max_examples:
+            break
+    return out
+
+
 def resolve_gemini_api_key(*, project_root: Path | None = None) -> str:
     key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if key:
@@ -69,8 +101,9 @@ def request_tracking_plan_from_clips(
     duration_sec: float,
     candidate_cuts_sec: list[float],
     work_dir: Path,
-    half_window_sec: float = 8.0,
+    half_window_sec: float = 12.0,
     probe_centers_sec: list[float] | None = None,
+    forward_scrub_offset_sec: float = 0.0,
     api_key: str | None = None,
     model: str | None = None,
     project_root: Path | None = None,
@@ -102,6 +135,7 @@ def request_tracking_plan_from_clips(
         half_window_sec=half_window_sec,
         skip_endpoints=True,
         probe_centers_sec=probe_centers_sec,
+        forward_scrub_offset_sec=forward_scrub_offset_sec,
     )
     if not windows:
         raise RuntimeError("No mid-show listen windows from candidates")
@@ -129,6 +163,31 @@ def request_tracking_plan_from_clips(
 
     client = genai.Client(api_key=key)
     parts: list[Any] = [types.Part.from_text(text=prompt)]
+    few_shot = load_train_few_shot_examples(
+        project_root=root, exclude_show_id=show_id, max_examples=3
+    )
+    few_dir = work_dir / "few_shot"
+    for i, ex in enumerate(few_shot):
+        center = float(ex["cut_sec"])
+        start = max(0.0, center - 8.0)
+        end = center + 8.0
+        dest = few_dir / f"fewshot_{i:02d}_{ex['show_id']}_{center:.1f}s.flac"
+        try:
+            extract_audio_clip(ex["audio"], dest, start_sec=start, end_sec=end)
+        except Exception:
+            continue
+        parts.append(
+            types.Part.from_text(
+                text=(
+                    f"\nFEW-SHOT EXAMPLE (train only, correct etree cut): "
+                    f"show={ex['show_id']} cut={center:.3f}s — {ex['label']}. "
+                    f"The cut is at the clip center.\n"
+                )
+            )
+        )
+        parts.append(
+            types.Part.from_bytes(data=dest.read_bytes(), mime_type="audio/flac")
+        )
     for win, path in clip_paths:
         label = (
             f"\nAudio clip role={win['role']}: master center "
@@ -366,7 +425,15 @@ def refine_tracking_plan_cuts(
             bad = work_dir / f"bad_refine_response_{attempt}.txt"
             bad.write_text(text or repr(exc), encoding="utf-8")
             if attempt + 1 >= max_retries:
-                raise
+                # Keep the pre-refine plan rather than aborting the whole show
+                # (long Tier A refines often truncate JSON).
+                notes = list(plan.get("notes") or [])
+                notes.append(
+                    f"Refine skipped after {max_retries} JSON parse failures: {exc}"
+                )
+                out = dict(plan)
+                out["notes"] = notes
+                return out
             time.sleep(min(20.0, 2**attempt))
     if raw is None:
         assert last_error is not None
@@ -395,6 +462,14 @@ def refine_tracking_plan_cuts(
 
     # Refine responses sometimes omit 0 / duration; restore before rebuild.
     new_cuts = ensure_endpoint_cuts(new_cuts, duration_sec=duration_sec)
+    from dat_tracker.refine_cuts import preserve_well_spaced_prior_cuts
+
+    new_cuts = preserve_well_spaced_prior_cuts(
+        proposed,
+        new_cuts,
+        duration_sec=duration_sec,
+        min_separation_sec=45.0,
+    )
 
     refined = rebuild_tracks_from_cuts(
         plan,

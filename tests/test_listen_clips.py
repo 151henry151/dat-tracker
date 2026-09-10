@@ -93,6 +93,10 @@ def test_tracking_listen_prompt_requires_rejecting_false_candidates():
     assert "banter" in prompt.lower()
     assert "own" in prompt.lower()
     assert "missing a real boundary" in prompt.lower()
+    assert "next" in prompt.lower() and "track" in prompt.lower()
+    assert "forward_scrub" in prompt
+    assert "few-shot" in prompt.lower() or "wrong:" in prompt.lower()
+    assert "reject hatch" in prompt.lower() or "inventing a boundary" in prompt.lower()
 
 
 def test_tracking_listen_prompt_calls_out_segues():
@@ -117,6 +121,24 @@ def test_tracking_listen_prompt_calls_out_segues():
     )
     assert "segue" in prompt.lower()
     assert "segue_into_next" in prompt
+
+
+def test_build_listen_windows_adds_forward_scrub_for_candidates():
+    # Production merges anchors+probes into candidate_cuts_sec and also passes
+    # probe_centers_sec so probes are tagged gap_probe (no forward twin).
+    windows = build_listen_windows(
+        candidate_cuts_sec=[0.0, 100.0, 200.0, 400.0],
+        duration_sec=400.0,
+        half_window_sec=8.0,
+        skip_endpoints=True,
+        probe_centers_sec=[200.0],
+        forward_scrub_offset_sec=30.0,
+    )
+    roles = [(w["role"], float(w["center_sec"])) for w in windows]
+    assert ("candidate", 100.0) in roles
+    assert ("forward_scrub", 130.0) in roles
+    assert ("gap_probe", 200.0) in roles
+    assert ("forward_scrub", 230.0) not in roles
 
 
 def test_parse_model_json_accepts_fenced_block():
