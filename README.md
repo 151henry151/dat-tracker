@@ -92,8 +92,8 @@ Tune on **train**, not holdout. Numbers move as plans are regenerated.
 
 | Set | mean F1 @ ±15 s | Notes |
 |-----|-----------------|--------|
-| Tier B train (best merged) | **0.798** | min **0.714**; track \|Δ\|≤1 **80%**. Denser probes lifted ymsb; still short of holdout mean gate |
-| Tier B holdout (fresh) | **0.580** | Gate: mean ≥ **0.85**, min ≥ **0.70** — **FAIL** (ymsb/jcb still weak) |
+| Tier B train (best merged) | **0.804** | min **0.714**; track \|Δ\|≤1 **60%** (los over-seg). Escalate density gate + soft polish landed; fresh Gemini runs still flip lattices |
+| Tier B holdout (fresh) | **0.596** | Gate: mean ≥ **0.85**, min ≥ **0.70** — **FAIL** (ymsb ~0.31, jcb ~0.42) |
 | Tier A (3 shows) | ~0.34 | Gate: mean ≥ **0.80** — **FAIL**; Pro lattice guard + refine JSON soft-fail added |
 
 **Not shippable yet.** Shipping gates are held-out metrics; train progress does not unlock batching.
