@@ -122,13 +122,22 @@ def snap_clearly_early_cuts_to_speech(
     return mono
 
 
+def _silence_end_confirmed(
+    silence_end: float,
+    *,
+    confirm_pool: list[float],
+    confirm_within_sec: float,
+) -> bool:
+    return any(silence_end < t <= silence_end + confirm_within_sec for t in confirm_pool)
+
+
 def polish_early_cuts_to_silence_ends(
     cuts_sec: list[float],
     *,
     silence_ends: list[float],
     duration_sec: float,
     min_early_sec: float = 12.0,
-    max_early_sec: float = 40.0,
+    max_early_sec: float = 55.0,
     already_near_sec: float = 5.0,
     speech_onsets: list[float] | None = None,
     confirm_times: list[float] | None = None,
@@ -137,13 +146,13 @@ def polish_early_cuts_to_silence_ends(
     """Move clearly-early mid cuts forward onto a confirmed silence end.
 
     Gemini often lands mid-applause / song-end while etree cuts start the *next*
-    track after the gap (often 15–40s later). Among silence ends in
+    track after the gap (often 15–55s later). Among silence ends in
     [cut+min_early, cut+max_early], prefer the *last* that is followed within
     confirm_within_sec by a confirmation time (speech onset or energy rise).
     Unconfirmed blips (breaths, rests) are ignored so we do not overshoot into
-    the next song. Skip when the cut is already near a silence end (already at
-    a transition); do not skip merely because Whisper heard speech near an
-    early/wrong cut — that blocked real near-miss polish on train shows.
+    the next song. Skip only when the cut is already near a *confirmed*
+    silence end (true transition); an unconfirmed nearby blip must not trap
+    an early cut that still needs to walk forward.
     """
     ends = sorted(float(s) for s in silence_ends)
     onsets = sorted(float(o) for o in (speech_onsets or []))
@@ -154,16 +163,29 @@ def polish_early_cuts_to_silence_ends(
         return []
     out = [ordered[0]]
     for cut in ordered[1:-1]:
-        if any(abs(s - cut) <= already_near_sec for s in ends):
-            out.append(cut)
-            continue
+        nearby = [s for s in ends if abs(s - cut) <= already_near_sec]
+        if nearby:
+            if not confirm_pool:
+                # No confirm channel: legacy skip on any nearby silence.
+                out.append(cut)
+                continue
+            if any(
+                _silence_end_confirmed(
+                    s, confirm_pool=confirm_pool, confirm_within_sec=confirm_within_sec
+                )
+                for s in nearby
+            ):
+                out.append(cut)
+                continue
         window = [
             s for s in ends if cut + min_early_sec <= s <= cut + max_early_sec
         ]
         confirmed = [
             s
             for s in window
-            if any(s < t <= s + confirm_within_sec for t in confirm_pool)
+            if _silence_end_confirmed(
+                s, confirm_pool=confirm_pool, confirm_within_sec=confirm_within_sec
+            )
         ]
         if confirmed:
             out.append(confirmed[-1])
@@ -172,7 +194,7 @@ def polish_early_cuts_to_silence_ends(
             out.append(window[-1])
         elif window and (window[-1] - cut) <= 25.0:
             # Short-range fallback when confirms miss soft onsets (still
-            # blocked for long 25–40s walks that need a real rise).
+            # blocked for long 25–55s walks that need a real rise).
             out.append(window[-1])
         else:
             out.append(cut)

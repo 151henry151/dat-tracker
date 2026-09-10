@@ -38,3 +38,49 @@ def test_should_escalate_to_pro_on_long_underseg():
         duration_sec=2600.0,
         max_seg_sec=600.0,
     )
+
+
+def test_should_run_gap_fill_skips_when_track_count_already_dense():
+    # ymsb2000-shaped: enough tracks for duration, but one long jam/gap.
+    # INSERT/Pro escalate here adds false cuts (over-seg).
+    assert not should_run_gap_fill(
+        cuts_sec=[
+            0.0,
+            200.0,
+            400.0,
+            600.0,
+            800.0,
+            1000.0,
+            1200.0,
+            1400.0,
+            1600.0,
+            1800.0,
+            2500.0,
+            3883.0,
+        ],
+        duration_sec=3883.0,
+        max_seg_sec=600.0,
+    )
+
+
+def test_should_escalate_to_pro_skips_dense_long_show_with_one_long_gap():
+    from dat_tracker.track_show import should_escalate_to_pro
+
+    assert not should_escalate_to_pro(
+        cuts_sec=[
+            0.0,
+            200.0,
+            400.0,
+            600.0,
+            800.0,
+            1000.0,
+            1200.0,
+            1400.0,
+            1600.0,
+            1800.0,
+            2500.0,
+            3883.0,
+        ],
+        duration_sec=3883.0,
+        max_seg_sec=600.0,
+    )

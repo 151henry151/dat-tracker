@@ -22,7 +22,8 @@ def test_polish_early_cuts_moves_to_last_confirmed_silence_end():
     assert polished[2] == 452.2
 
 
-def test_polish_early_cuts_skips_when_already_near_silence_end():
+def test_polish_early_cuts_skips_when_already_near_confirmed_silence_end():
+    # Already parked on a confirmed transition silence — do not yank forward.
     cuts = [0.0, 245.0, 500.0]
     silence_ends = [244.5, 260.0, 400.0]
     polished = polish_early_cuts_to_silence_ends(
@@ -30,13 +31,32 @@ def test_polish_early_cuts_skips_when_already_near_silence_end():
         silence_ends=silence_ends,
         duration_sec=500.0,
         already_near_sec=5.0,
-        confirm_times=[261.0],
+        confirm_times=[245.5],  # confirms the nearby 244.5
     )
     assert polished[1] == 245.0
 
 
+def test_polish_early_cuts_ignores_unconfirmed_nearby_silence_trap():
+    # jcb-shaped: spurious silence blip within already_near of an early cut must
+    # not block a walk to a later confirmed next-track start.
+    cuts = [0.0, 605.0, 1334.0, 4000.0]
+    silence_ends = [600.0, 607.0, 643.0, 650.0, 1382.0, 1390.0]
+    polished = polish_early_cuts_to_silence_ends(
+        cuts,
+        silence_ends=silence_ends,
+        duration_sec=4000.0,
+        min_early_sec=12.0,
+        max_early_sec=55.0,
+        already_near_sec=5.0,
+        confirm_times=[644.0, 1383.0],
+        confirm_within_sec=8.0,
+    )
+    assert polished[1] == 643.0
+    assert polished[2] == 1382.0
+
+
 def test_polish_early_cuts_skips_when_already_near_speech_onset():
-    # LKE-shaped: cut already at a transition (near silence end) — do not yank.
+    # LKE-shaped: cut already at a transition (near confirmed silence) — do not yank.
     cuts = [0.0, 1044.0, 2000.0]
     silence_ends = [1040.0, 1060.0, 1070.0, 1080.0]
     polished = polish_early_cuts_to_silence_ends(
@@ -44,7 +64,7 @@ def test_polish_early_cuts_skips_when_already_near_speech_onset():
         silence_ends=silence_ends,
         duration_sec=2000.0,
         speech_onsets=[1045.0],
-        confirm_times=[1061.0, 1071.0],
+        confirm_times=[1041.0, 1061.0, 1071.0],
         already_near_sec=5.0,
     )
     assert polished[1] == 1044.0

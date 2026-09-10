@@ -96,16 +96,20 @@ def should_run_gap_fill(
     duration_sec: float,
     max_seg_sec: float = 480.0,
 ) -> bool:
-    """True when the plan has a long segment or too few tracks for its length."""
+    """True only when the plan is under-segmented by track count.
+
+    A single long jam inside an otherwise dense lattice must not trigger
+    INSERT/Pro escalate — that path over-segments holdout-length shows.
+    """
     ordered = ensure_endpoint_cuts(cuts_sec, duration_sec=duration_sec)
     if len(ordered) < 2:
         return True
     max_seg = max(b - a for a, b in zip(ordered, ordered[1:], strict=False))
     track_count = len(ordered) - 1
     expected_min_tracks = max(4, int(round(duration_sec / 360.0)))
-    return max_seg >= max_seg_sec or (
-        track_count < expected_min_tracks and max_seg >= 300.0
-    )
+    if track_count >= expected_min_tracks:
+        return False
+    return max_seg >= max_seg_sec or max_seg >= 300.0
 
 
 def should_escalate_to_pro(
@@ -432,7 +436,7 @@ def run_track_show(
         silence_ends=polish_silence_ends,
         duration_sec=duration,
         min_early_sec=12.0,
-        max_early_sec=40.0,
+        max_early_sec=55.0,
         already_near_sec=5.0,
         speech_onsets=speech_onsets,
         confirm_times=confirm_times,
@@ -450,7 +454,7 @@ def run_track_show(
             evidence_by_cut=evidence,
             note=(
                 "Polished clearly-early mid cuts forward onto the last confirmed "
-                "silence end in a 12–40s look-ahead (silence + energy/speech rise)."
+                "silence end in a 12–55s look-ahead (silence + energy/speech rise)."
             ),
         )
     dedupe_sep = adaptive_min_separation_sec(duration)
