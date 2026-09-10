@@ -419,9 +419,11 @@ def run_track_show(
             note="Snapped clearly-offset mid cuts onto nearest listen centers (±40s).",
         )
     # Dense silence ends: walk clearly-early cuts forward onto next-track starts.
+    # Softer silence channel than classical proposals: quiet applause gaps often
+    # miss -35dB/0.3s but still need confirm (energy/RMS/speech) before a walk.
     polish_silence_ends = silence_end_candidates(
-        run_silencedetect(source_audio, noise_db=-35, min_silence_sec=0.3),
-        min_silence_sec=0.3,
+        run_silencedetect(source_audio, noise_db=-30, min_silence_sec=0.2),
+        min_silence_sec=0.2,
     )
     islands = merge_speech_islands(
         filter_plausible_speech_segments(segs, max_seg_sec=20.0)

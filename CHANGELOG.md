@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Require a confirmed nearby silence before `already_near` polish skip; ignore unconfirmed blips that trapped early cuts; widen confirmed early look-ahead to 55s.
+- Use a softer silence channel for early polish (-30dB / 0.2s) so quiet applause gaps remain candidates under the confirm gate.
 - Gate gap-fill / Pro escalate on under-segmentation by track count so a single long jam in an already-dense lattice does not INSERT extra cuts.
 - Soft-fail Gemini refine when JSON remains invalid after retries (keep the pre-refine plan) so long Tier A shows are not aborted mid-pipeline.
 - Add an explicit REJECT hatch to the listen prompt: do not invent SNAP-forward boundaries when neither candidate nor forward_scrub shows a real transition.
