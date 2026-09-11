@@ -123,6 +123,54 @@ def test_tracking_listen_prompt_calls_out_segues():
     assert "segue_into_next" in prompt
 
 
+def test_tracking_listen_prompt_gates_banter_track_on_substantiveness():
+    # Holdout over-segmentation (ymsb2000 / jcb2004 / sbb2004): the model
+    # accepted a separate banter cut for nearly every song transition even
+    # where the reference kept that transition as one file. The old prompt's
+    # unconditional "keep banter as its own track" language had no exception
+    # for a brief remark.
+    prompt = tracking_listen_prompt(
+        show_id="ymsb2000",
+        duration_sec=100.0,
+        candidate_cuts_sec=[0.0, 40.0, 100.0],
+        windows=[
+            {
+                "center_sec": 40.0,
+                "start_sec": 32.0,
+                "end_sec": 48.0,
+                "role": "candidate",
+            }
+        ],
+    )
+    assert "substantial" in prompt.lower()
+    assert "every single song transition" in prompt.lower()
+    assert "banter" in prompt.lower()
+    assert "own" in prompt.lower()
+
+
+def test_tracking_listen_prompt_covers_show_opening_banter():
+    # Same real show (ymsb2000-08-18.flac16): the reference's first track
+    # spans both the opening band announcement (~179s) and the first song
+    # (June Apple, ~260s) as one file — the model kept splitting them into
+    # two even after the between-song banter guidance was softened, because
+    # that guidance only mentioned mid-show transitions.
+    prompt = tracking_listen_prompt(
+        show_id="ymsb2000",
+        duration_sec=100.0,
+        candidate_cuts_sec=[0.0, 40.0, 100.0],
+        windows=[
+            {
+                "center_sec": 40.0,
+                "start_sec": 32.0,
+                "end_sec": 48.0,
+                "role": "candidate",
+            }
+        ],
+    )
+    assert "show opening" in prompt.lower()
+    assert "first song" in prompt.lower()
+
+
 def test_build_listen_windows_adds_forward_scrub_for_candidates():
     # Production merges anchors+probes into candidate_cuts_sec and also passes
     # probe_centers_sec so probes are tagged gap_probe (no forward twin).

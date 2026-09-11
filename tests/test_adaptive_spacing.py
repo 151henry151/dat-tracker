@@ -4,9 +4,19 @@ from dat_tracker.refine_cuts import adaptive_min_separation_sec, merge_near_dupl
 
 
 def test_adaptive_min_separation_grows_with_duration():
-    assert adaptive_min_separation_sec(800.0) == 20.0
+    assert adaptive_min_separation_sec(800.0) == 45.0
     assert adaptive_min_separation_sec(1500.0) == 45.0
     assert adaptive_min_separation_sec(3500.0) == 90.0
+
+
+def test_adaptive_merge_catches_short_show_banter_pair():
+    # Real holdout over-segmentation (sbb2004-05-02.flac16, duration 1191.6s):
+    # two cuts 39s apart (966.5, 1005.5) both near the single reference
+    # boundary at 1007.8 survived the old 20s bucket for shows under 1200s.
+    sep = adaptive_min_separation_sec(1191.6)
+    merged = merge_near_duplicate_cuts([0.0, 966.5, 1005.5, 1191.6], min_separation_sec=sep)
+    assert sep == 45.0
+    assert merged == [0.0, 1005.5, 1191.6]
 
 
 def test_adaptive_merge_reduces_ymsb_style_oversegmentation():

@@ -223,6 +223,11 @@ Few-shot policy examples (text only):
 - Right: REJECT that candidate; one long song stays one track.
 - Wrong: SNAP forward into a solo section because the forward_scrub clip is busy.
 - Right: REJECT when neither clip shows a real song/banter boundary.
+- Wrong: split a two-sentence "Thanks everybody, this next one's a waltz"
+  between-song remark into its own track.
+- Right: fold a brief remark like that into the next song's track; only give
+  banter its own track for a real stage break (extended talking, tuning,
+  band introductions).
 
 Segues (required): when one song flows directly into the next with no real
 pause — the next song's count-in or first notes start immediately, no dead
@@ -232,9 +237,22 @@ track instead; etree convention keeps a segued pair as one physical track,
 titled "Song A > Song B". Only split when there is a real gap: applause,
 stage banter, tuning, or silence between the two songs.
 
-Etree convention (required): keep stage banter, tuning, song intros, and encore
-breaks as their *own* tracks when they are distinct from the songs. Do not fold
-banter into the previous or next song just to reduce track count.
+Etree convention: substantial stage banter, tuning, and encore breaks — the
+announcer or band talking for several seconds or more, a real tuning-up
+passage, a distinct stage break — usually get their *own* track. A brief
+transitional remark between one song's end and the next song's start (a few
+words, "thanks everybody", a short pause) is often kept attached to the song
+it introduces instead — do not add a banter cut for every single song transition
+just because speech was detected there. When unsure whether banter is
+substantial, prefer the track count that looks like ~1 track per song plus
+occasional distinct breaks over one banter track per transition.
+
+Show opening: this same rule applies at the very start. A brief opening
+announcement or crowd greeting immediately before the first song ("Welcome
+back...", a quick band intro) is often kept attached to the first song as
+one track, not split into its own opening-announcement track — do not treat
+the first few seconds of speech as automatically deserving a cut just
+because it precedes the first song.
 
 Typical bluegrass songs are often ~2–6 minutes; a 7–12 minute song with no
 banter may still be one track.

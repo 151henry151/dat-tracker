@@ -325,12 +325,15 @@ def merge_near_duplicate_cuts(
 
 
 def adaptive_min_separation_sec(duration_sec: float) -> float:
-    """Wider cut spacing on long shows to curb mid-song over-segmentation."""
+    """Wider cut spacing on long shows to curb mid-song over-segmentation.
+
+    Shows under ~50 min use the same 45s floor as the mid bucket so a brief
+    banter cut and the following song-start (~30–40s apart) merge instead of
+    surviving as a double-cut pair.
+    """
     if duration_sec >= 3000.0:
         return 90.0
-    if duration_sec >= 1200.0:
-        return 45.0
-    return 20.0
+    return 45.0
 
 
 def adaptive_refine_half_window_sec(duration_sec: float) -> float:

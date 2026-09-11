@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Gate the etree "banter gets its own track" listen-prompt instruction on substantiveness: keep substantial stage breaks as their own tracks, but fold brief transitional remarks and short opening announcements into the song they introduce; add matching text few-shot examples and show-opening guidance.
+- Widen the `adaptive_min_separation_sec` floor for shows under 3000s from 20s to 45s so a banter cut and the following song-start ~30–40s apart merge on shorter shows.
 - Require a confirmed nearby silence before `already_near` polish skip; ignore unconfirmed blips that trapped early cuts; widen confirmed early look-ahead to 55s.
 - Use a softer silence channel for early polish (-30dB / 0.2s) so quiet applause gaps remain candidates under the confirm gate.
 - Gate gap-fill / Pro escalate on under-segmentation by track count so a single long jam in an already-dense lattice does not INSERT extra cuts.
