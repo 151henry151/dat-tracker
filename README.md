@@ -60,7 +60,7 @@ Matching careful human tracking conventions, for example:
 - Bundle: FLAC + info `.txt` + fingerprint (`.ffp` / `fingerprint.ffp.txt`) + tags.
 - Honest credit chains for transferer / tracker on Archive.org uploads.
 
-Fully automatic release is the goal; confidence gates flag hard shows instead of requiring a waveform review workflow for every file.
+Fully automatic *proposal* is the goal; packaging still goes through a required review gate (`dat-review`) with a one-key **Accept-all** fast path when the plan looks good.
 
 ## Status
 
@@ -73,7 +73,8 @@ Early development (**0.1.0**). Version stays at 0.1.0 until Live Bluegrass packa
 - Tier B external calibration corpus + synthetic re-split harness (train/holdout manifests and scorers).
 - Tier A helpers to align Jon packages inside extracted raws and score plans against known cuts.
 - Classical/ASR proposal stack (silence, energy, speech islands) feeding sparse Gemini listening.
-- End-to-end `scripts/track_show.py`: Whisper → Gemini Flash listen → optional refine / gap-fill / Pro escalate → tracking-plan JSON → optional etree package export.
+- End-to-end `scripts/track_show.py`: Whisper → Gemini Flash listen → optional refine / gap-fill / Pro escalate → tracking-plan JSON → **review gate** → optional etree package export.
+- Cross-platform Textual review TUI (`dat-review`): run with no args to pick a show from `data/work`, or `dat-review <show-id>`; waveform overview/detail, cut edit, track/package metadata, playback loop, Accept-all / Save&approve; packaging refuses unapproved plans unless `--force-unreviewed`.
 - Hardening from calibration loops: endpoint restoration, refine windows, snaps, JSON/transport retries, near-zero merge fix, sparse gap-fill probes, temperature 0.0, segue guidance in the listen prompt.
 
 ### In progress
@@ -255,7 +256,13 @@ What that install does:
 - `.[asr]` pulls in **faster-whisper** for local speech islands (recommended for tracking).
 - Core deps including **`internetarchive`**, **`google-genai`**, and **`jsonschema`** come in automatically.
 
-Optional: `pip install -e ".[dev]"` if you also want **pytest** (see Development below). You can combine extras: `pip install -e ".[asr,dev]"`.
+Optional: `pip install -e ".[dev]"` if you also want **pytest** (see Development below). For the review TUI and Accept-all packaging path, install **`[review]`** (needs PortAudio for playback — e.g. `portaudio19-dev` on Debian/Ubuntu, `brew install portaudio` on macOS):
+
+```bash
+pip install -e ".[asr,review]"
+```
+
+You can combine extras: `pip install -e ".[asr,dev,review]"`.
 
 After install, with the venv still **activated**, Archive.org’s CLI should be available:
 
@@ -327,9 +334,32 @@ Useful flags:
 | `--gap-fill-max-seg-sec N` | Segment length that triggers gap-fill probes (default 480) |
 | `--reuse-calibration-whisper` | Reuse a cached Whisper JSON under `data/calibration/` when present |
 | `--tracker NAME` | Credit string written into show.txt (default `dat-tracker`) |
+| `--accept-all` | Headless review Approve-all before packaging (skip the TUI) |
+| `--force-unreviewed` | Package without approval (escape hatch only) |
 
 Outputs land under `data/work/<show-id>/` (plan JSON, listen clips, optional `package/`).
 
+### 5b. Review a plan (required before packaging)
+
+```bash
+# Easiest: open the show picker (lists data/work plans)
+dat-review
+
+# Or jump straight to one show
+dat-review sbb2001-04-27.flac16
+
+# Headless approve when the auto plan looks good
+dat-review sbb2001-04-27.flac16 --accept-all
+
+# Power-user path still works
+dat-review --plan data/work/<show-id>/tracking_plan_gemini.json --source path/to.flac
+```
+
+On open, `dat-review` hydrates blank track titles/types from Gemini listen notes (when the model left `tracks` empty and only named songs in notes) and seeds empty package fields from the published calibration info `.txt` (when present), the calibration catalog, and/or the show-id date. CLI `--artist` / `--date` / `--venue` / etc. override those seeds.
+
+Waveforms: overview is a multi-row full-show silhouette (yellow cut markers, cyan band = detail window); detail zooms ~±20s around the selected cut with a time ruler.
+
+Keys in the TUI: `a` Accept-all, `s` Save&approve, `q` Quit, arrows nudge cut, `i`/`d` insert/delete cut, Space/`l` play/loop around the selected cut.
 ### 6. Optional: download from Archive.org
 
 With the venv activated, `ia` comes from the **`internetarchive`** dependency:

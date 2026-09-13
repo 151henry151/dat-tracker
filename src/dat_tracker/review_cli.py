@@ -1,0 +1,288 @@
+"""CLI entry point for `dat-review` — picker by default, optional --plan/--show."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from dat_tracker.review_discover import (
+    discover_reviewable_shows,
+    resolve_show_for_review,
+)
+from dat_tracker.review_hydrate import hydrate_plan_from_notes, seed_package_metadata
+from dat_tracker.review_plan import accept_all_plan_file, migrate_tracking_plan
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _project_root() -> Path:
+    """Prefer repo root when running from a checkout; else cwd."""
+    if (_REPO_ROOT / "catalog").is_dir() and (_REPO_ROOT / "data").exists():
+        return _REPO_ROOT
+    return Path.cwd()
+
+
+def prepare_plan(
+    raw: dict[str, Any],
+    *,
+    project_root: Path,
+    artist: str | None = None,
+    date: str | None = None,
+    tracker: str | None = None,
+    venue: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+) -> dict[str, Any]:
+    plan = migrate_tracking_plan(raw)
+    plan = hydrate_plan_from_notes(plan)
+    plan = seed_package_metadata(
+        plan,
+        artist=artist,
+        date=date,
+        tracker=tracker,
+        venue=venue,
+        city=city,
+        state=state,
+        project_root=project_root,
+    )
+    return plan
+
+
+def _resolve_source(
+    *,
+    plan: dict[str, Any],
+    explicit: Path | None,
+    project_root: Path,
+    fallback: Path | None,
+) -> Path | None:
+    if explicit is not None:
+        return explicit
+    if fallback is not None and fallback.is_file():
+        return fallback
+    if plan.get("source_path"):
+        candidate = Path(str(plan["source_path"]))
+        if candidate.is_file():
+            return candidate
+        alt = project_root / candidate
+        if alt.is_file():
+            return alt
+    return fallback
+
+
+def run_interactive_review(
+    *,
+    plan_path: Path,
+    source_audio: Path | None,
+    project_root: Path,
+    approved_by: str | None = None,
+    artist: str | None = None,
+    date: str | None = None,
+    tracker: str | None = None,
+    venue: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+) -> int:
+    try:
+        from dat_tracker.tui_review.app import run_review_app
+    except ImportError as exc:
+        print(
+            "Interactive review requires the optional [review] extras "
+            f"(pip install -e '.[review]'): {exc}",
+            file=sys.stderr,
+        )
+        print("Or use --accept-all for the headless fast path.", file=sys.stderr)
+        return 2
+
+    plan = prepare_plan(
+        json.loads(plan_path.read_text()),
+        project_root=project_root,
+        artist=artist,
+        date=date,
+        tracker=tracker or approved_by,
+        venue=venue,
+        city=city,
+        state=state,
+    )
+    source = _resolve_source(
+        plan=plan,
+        explicit=source_audio,
+        project_root=project_root,
+        fallback=None,
+    )
+    return int(
+        run_review_app(
+            plan_path=plan_path,
+            plan=plan,
+            source_audio=source,
+            approved_by=approved_by,
+        )
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Review a tracking plan. With no arguments, opens a show picker "
+            "for data/work. Pass a show id, or --plan, to skip the picker."
+        )
+    )
+    parser.add_argument(
+        "show",
+        nargs="?",
+        default=None,
+        help="Show id under data/work (skips picker)",
+    )
+    parser.add_argument(
+        "--plan",
+        type=Path,
+        default=None,
+        help="Path to tracking_plan_gemini.json (power-user / scripting)",
+    )
+    parser.add_argument(
+        "--show",
+        dest="show_opt",
+        default=None,
+        help="Show id under data/work (same as positional SHOW)",
+    )
+    parser.add_argument(
+        "--work-dir",
+        type=Path,
+        default=None,
+        help="Work root containing per-show dirs (default: <root>/data/work)",
+    )
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=None,
+        help="Project root (default: package checkout or cwd)",
+    )
+    parser.add_argument(
+        "--accept-all",
+        action="store_true",
+        help="Approve the plan without opening the TUI (fast path)",
+    )
+    parser.add_argument(
+        "--approved-by",
+        default=None,
+        help="Optional reviewer identity stored on the plan",
+    )
+    parser.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help="Continuous FLAC override (defaults from plan / calibration)",
+    )
+    parser.add_argument("--artist", default=None)
+    parser.add_argument("--date", default=None, help="YYYY-MM-DD")
+    parser.add_argument("--tracker", default=None)
+    parser.add_argument("--venue", default=None)
+    parser.add_argument("--city", default=None)
+    parser.add_argument("--state", default=None)
+    args = parser.parse_args(argv)
+
+    project_root = Path(args.root) if args.root else _project_root()
+    work_dir = args.work_dir
+    show_id = args.show_opt or args.show
+
+    plan_path: Path | None = args.plan
+    source_from_show: Path | None = None
+
+    if plan_path is None:
+        if show_id:
+            found = resolve_show_for_review(
+                show_id, project_root=project_root, work_dir=work_dir
+            )
+            if found is None:
+                print(
+                    f"No tracking plan found for show {show_id!r} under "
+                    f"{work_dir or project_root / 'data' / 'work'}",
+                    file=sys.stderr,
+                )
+                return 1
+            plan_path = found.plan_path
+            source_from_show = found.source_path
+        elif args.accept_all:
+            print(
+                "--accept-all requires a show id or --plan PATH",
+                file=sys.stderr,
+            )
+            return 2
+        else:
+            # Interactive picker.
+            try:
+                from dat_tracker.tui_review.picker import run_show_picker
+            except ImportError as exc:
+                print(
+                    "Show picker requires the optional [review] extras "
+                    f"(pip install -e '.[review]'): {exc}",
+                    file=sys.stderr,
+                )
+                print(
+                    "Or pass a show id: dat-review <show-id>",
+                    file=sys.stderr,
+                )
+                return 2
+            shows = discover_reviewable_shows(
+                project_root=project_root, work_dir=work_dir
+            )
+            picked = run_show_picker(shows)
+            if picked is None:
+                return 1
+            plan_path = picked.plan_path
+            source_from_show = picked.source_path
+
+    assert plan_path is not None
+    if not plan_path.is_file():
+        print(f"Plan not found: {plan_path}", file=sys.stderr)
+        return 1
+
+    if args.accept_all:
+        prepared = prepare_plan(
+            json.loads(plan_path.read_text()),
+            project_root=project_root,
+            artist=args.artist,
+            date=args.date,
+            tracker=args.tracker or args.approved_by,
+            venue=args.venue,
+            city=args.city,
+            state=args.state,
+        )
+        plan_path.write_text(json.dumps(prepared, indent=2) + "\n")
+        approved = accept_all_plan_file(plan_path, approved_by=args.approved_by)
+        print(
+            f"Approved {plan_path} method=accept_all "
+            f"cuts={len(approved.get('cuts_sec') or [])}",
+            file=sys.stderr,
+        )
+        return 0
+
+    source = args.source or source_from_show
+    if source is None:
+        # Last chance from prepared plan paths after hydrate.
+        raw = json.loads(plan_path.read_text())
+        source = _resolve_source(
+            plan=raw,
+            explicit=None,
+            project_root=project_root,
+            fallback=source_from_show,
+        )
+
+    return run_interactive_review(
+        plan_path=plan_path,
+        source_audio=source,
+        project_root=project_root,
+        approved_by=args.approved_by,
+        artist=args.artist,
+        date=args.date,
+        tracker=args.tracker,
+        venue=args.venue,
+        city=args.city,
+        state=args.state,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

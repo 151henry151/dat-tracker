@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `dat-review` show picker: with no args, list `data/work` plans and open one; also accept a positional show id (`dat-review <show-id>`).
+- Add multi-row Unicode waveform panels (`render_envelope_panel`) with sqrt amplitude, cut/playhead overlays, detail viewport band, and a time ruler for the review TUI.
+- Parse published calibration show `.txt` headers into empty `package` fields (venue/city/state/source/artist/date) during review hydrate.
+- Add `hydrate_plan_from_notes` so review opens with song titles/types recovered from Gemini listen notes when the model left `tracks` empty; seed empty `package` fields from the calibration catalog / show-id date.
+- Add a required packaging review gate: tracking-plan schema 1.1.0 `package` + `review` fields, headless `dat-review --accept-all`, and a Textual TUI (`dat-review`) with waveform overview/detail, cut nudge/insert/delete, track/package metadata editing, and local audio loop playback around cuts.
+- Add optional `[review]` extras (`textual`, `numpy`, `soundfile`, `sounddevice`, `mutagen`) and waveform envelope cache helpers.
 - Freeze Baseline A for the shipping-gates campaign: Tier B train mean F1 0.755 / min 0.533 / track |Δ|≤1 100% (pre-placement Gemini + early silence polish); document in `docs/baseline_a.md`.
 - Harden early silence polish with RMS-rise / energy confirmation, short-range fallback, and speech/energy confirm channels; add `silence_ends_with_rms_rise`.
 - Add train-only audio few-shot exemplars (`catalog/few_shot_train.json`) into the first Gemini listen pass.
@@ -17,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Make `dat-review` resolve plan/source from show id or the picker so end users need not pass long `--plan` / `--source` paths.
+- Grow review TUI overview/detail waveforms into taller multi-row silhouettes; highlight the detail window on the overview and emphasize the selected cut.
+- Seed review `package` inputs from an explicit repo-root catalog path plus published calibration info `.txt` when present (not cwd-only).
+- Require `review.status=approved` before `package_show_from_plan` (escape hatch: `--force-unreviewed`); `track_show` migrates plans to 1.1.0 and can spawn review or `--accept-all`.
+- Amend PLAN.md / AGENTS.md: automation still produces the plan; packaging uses a required review gate with Accept-all fast path (not a DAW).
 - Gate the etree "banter gets its own track" listen-prompt instruction on substantiveness: keep substantial stage breaks as their own tracks, but fold brief transitional remarks and short opening announcements into the song they introduce; add matching text few-shot examples and show-opening guidance.
 - Widen the `adaptive_min_separation_sec` floor for shows under 3000s from 20s to 45s so a banter cut and the following song-start ~30–40s apart merge on shorter shows.
 - Require a confirmed nearby silence before `already_near` polish skip; ignore unconfirmed blips that trapped early cuts; widen confirmed early look-ahead to 55s.

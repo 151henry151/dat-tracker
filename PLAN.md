@@ -71,7 +71,7 @@ flowchart LR
 - Download **entire** Dropbox dump (~100 GB; ensure the host has enough free disk).
 - Track **all** shows; do **not** wait on coordination first.
 - Treat Jon’s Dave Ward / Brian H uploads as **primary in-domain calibration**, but **do not** tune solely against them—require held-out metrics on **additional external tracked DAT packages** so the system does not overfit one dump’s quirks (tape gaps, festival multi-artist files, naming).
-- **Automation first (locked):** the LLM drives boundary placement, track-type labels, segue marks, titles/setlist, and packaging. Do **not** build a required human waveform review UI. Human involvement is reserved for exceptional failures (metrics/confidence below threshold), ideally none for well-behaved shows.
+- **Automation first (locked):** the LLM drives boundary placement, track-type labels, segue marks, titles/setlist. Packaging/upload requires an explicit human **review gate** via the cross-platform Textual TUI (`dat-review`), with a one-key **Accept-all** fast path when the auto plan looks good. This is not a DAW and not optional silent packaging; `--force-unreviewed` is an escape hatch only. Weak calibration metrics remain a pipeline bug to fix, not a reason to skip review forever.
 - **LLM-in-the-loop listens (locked):** the tracker role is what a careful human does today in Audacity/xACT — *hear* transitions and decide cuts/labels/titles — not a text-only model that only reads a pre-digested feature dump. Prefer an **audio-native** LLM (primary: **Google Gemini**). Text-only chat models (e.g. Claude without audio) are out of scope for the tracker decision step.
 - **Sparse listening for cost (locked):** do **not** send the full show to the LLM by default. Classical/ASR proposals find *where to scrub*; the model listens only to **short clips around candidate boundaries** (and rare low-confidence follow-ups). Prefer cheaper Gemini Flash for iteration; escalate to Pro only when Flash fails held-out gates. Full-show audio upload is an exceptional fallback, not the happy path.
 - **Corpus-driven improvement (locked):** build toward using many already-tracked Archive.org DAT shows as (1) few-shot / RAG style examples, (2) synthetic re-split benchmarks (concatenate published tracks → recover cuts), and later (3) optional fine-tuning / preference data—not only the 15 Live Bluegrass items.
@@ -137,9 +137,9 @@ Pipeline per raw full-show FLAC:
    - Marks segues (`>`).
    - Proposes titles and setlist structure in Jon’s / etree style, using what it hears plus folder/J-card context and **few-shot examples from the multi-corpus calibration set**.
    - Emits a structured tracking plan (JSON) with per-boundary confidence; may request extra clips only for low-confidence regions.
-4. **Export cuts** losslessly (`flac`/`sox`/`ffmpeg` sample-accurate) into etree filenames from the LLM plan — no manual nudge step.
+4. **Export cuts** losslessly (`flac`/`sox`/`ffmpeg` sample-accurate) into etree filenames from the LLM plan after the review gate (Accept-all or edited approve).
 5. Emit **show.txt** (Jon’s template: artist, date, venue, source, transfer, “Tracked & Uploaded by: …”, setlist, notes about Dave/Brian collections) + **fingerprint.ffp.txt** + Vorbis tags on each FLAC.
-6. **Exception path only:** if confidence or post-export checks fail thresholds, mark the catalog row `needs_review` and optionally dump a lightweight diagnostic (boundaries + spectrogram/energy plot). Do **not** require a full interactive waveform editor for normal operation.
+6. **Review gate (required):** open `dat-review` on the tracking plan (waveform + cut/label/metadata editor, or `--accept-all`). Packaging refuses `review.status != approved` unless `--force-unreviewed`.
 
 ### Calibration tiers (anti-overfit)
 

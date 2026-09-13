@@ -83,8 +83,12 @@ def package_show_from_plan(
     transfer: str | None = None,
     transferer: str = "Cate Crowe",
     set_label: str = "One Set",
+    force_unreviewed: bool = False,
 ) -> dict[str, Path]:
     """Write `{show_id}.txt` and `fingerprint.ffp.txt` next to exported tracks."""
+    from dat_tracker.review_plan import assert_review_approved_for_package
+
+    assert_review_approved_for_package(plan, force_unreviewed=force_unreviewed)
     out_dir.mkdir(parents=True, exist_ok=True)
     show_id = str(plan["show_id"])
     txt_path = out_dir / f"{show_id}.txt"

@@ -20,9 +20,20 @@ dependencies = [
 asr = [
   "faster-whisper>=1.0",
 ]
+review = [
+  "textual>=1.0",
+  "numpy>=1.26",
+  "soundfile>=0.12",
+  "sounddevice>=0.4",
+  "mutagen>=1.47",
+]
 dev = [
   "pytest>=8.0",
 ]
+
+[project.scripts]
+dat-review = "dat_tracker.review_cli:main"
+
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dat_tracker"]

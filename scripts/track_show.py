@@ -42,6 +42,21 @@ def main() -> int:
         help="Only write the Gemini tracking plan (no FLAC/txt/ffp export)",
     )
     parser.add_argument(
+        "--accept-all",
+        action="store_true",
+        help="Headless review Approve-all before packaging (skip TUI)",
+    )
+    parser.add_argument(
+        "--force-unreviewed",
+        action="store_true",
+        help="Package without review approval (escape hatch)",
+    )
+    parser.add_argument(
+        "--no-interactive-review",
+        action="store_true",
+        help="Do not spawn the TUI; require prior approval or --accept-all/--force-unreviewed",
+    )
+    parser.add_argument(
         "--refine",
         action="store_true",
         help="Extra Gemini listen pass to snap cuts (off by default; costly)",
@@ -168,6 +183,9 @@ def main() -> int:
             ),
             gap_fill=args.gap_fill,
             gap_fill_max_seg_sec=args.gap_fill_max_seg_sec,
+            accept_all_review=args.accept_all,
+            force_unreviewed=args.force_unreviewed,
+            interactive_review=not args.no_interactive_review,
         )
         if not args.skip_package and (not args.artist or not args.date):
             print(

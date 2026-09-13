@@ -19,7 +19,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0.0"
+      "enum": ["1.0.0", "1.1.0"]
     },
     "show_id": {
       "type": "string",
@@ -54,9 +54,49 @@
     "notes": {
       "type": "array",
       "items": { "type": "string" }
-    }
+    },
+    "package": { "$ref": "#/$defs/package" },
+    "review": { "$ref": "#/$defs/review" }
   },
   "$defs": {
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "artist": { "type": ["string", "null"] },
+        "date": { "type": ["string", "null"] },
+        "venue": { "type": ["string", "null"] },
+        "city": { "type": ["string", "null"] },
+        "state": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] },
+        "transfer": { "type": ["string", "null"] },
+        "transferer": { "type": ["string", "null"] },
+        "tracker": { "type": ["string", "null"] },
+        "collection_subjects": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "set_label": { "type": ["string", "null"] },
+        "notes": { "type": ["string", "null"] }
+      }
+    },
+    "review": {
+      "type": "object",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "approved", "rejected"]
+        },
+        "approved_at": { "type": ["string", "null"] },
+        "approved_by": { "type": ["string", "null"] },
+        "method": {
+          "type": ["string", "null"],
+          "enum": ["accept_all", "edited", null]
+        }
+      }
+    },
     "track": {
       "type": "object",
       "required": [

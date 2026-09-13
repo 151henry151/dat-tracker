@@ -1,0 +1,175 @@
+"""Tests for hydrating blank LLM track titles/types from listen notes."""
+
+from pathlib import Path
+
+from dat_tracker.review_hydrate import (
+    hydrate_plan_from_notes,
+    parse_published_show_txt,
+    seed_package_metadata,
+)
+from dat_tracker.review_plan import migrate_tracking_plan
+from dat_tracker.tracking_plan import validate_tracking_plan
+
+
+def _sbb_like_plan():
+    return migrate_tracking_plan(
+        {
+            "schema_version": "1.0.0",
+            "show_id": "sbb2001-04-27.flac16",
+            "source_path": "data/calibration/sbb2001-04-27.flac16/synthetic_continuous.flac",
+            "duration_sec": 1210.24,
+            "cuts_sec": [0.0, 375.3, 536.4, 645.0, 1210.24],
+            "tracks": [
+                {
+                    "index": 1,
+                    "start_sec": 0.0,
+                    "end_sec": 375.3,
+                    "track_type": "unknown",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 2,
+                    "start_sec": 375.3,
+                    "end_sec": 536.4,
+                    "track_type": "unknown",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 3,
+                    "start_sec": 536.4,
+                    "end_sec": 645.0,
+                    "track_type": "unknown",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 4,
+                    "start_sec": 645.0,
+                    "end_sec": 1210.24,
+                    "track_type": "unknown",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+            ],
+            "overall_confidence": 0.5,
+            "needs_review": False,
+            "notes": [
+                "REJECT 112.940s: continuous music ('Girl from the North Country').",
+                "REJECT 277.000s: continuous music ('Girl from the North Country').",
+                "SNAP 375.340s -> 379.000s: song 1 ends around 363s; spoken intro ends and second song rhythm starts at 379.0s.",
+                "SNAP 536.380s -> 524.000s: song 2 finishes around 524.0s with applause and transition into stage banter.",
+                "REJECT 581.800s: mid-banter joke inside extended stage break.",
+                "SNAP 644.920s -> 648.000s: stage banter ends and song 3 intro starts at 648.0s.",
+                "REJECT 737.000s: continuous music ('Sailin' Shoes' / 'Cocaine').",
+                "REJECT 869.000s: continuous music ('Doctor Doctor').",
+                "REJECT 992.000s: continuous music ('Sun's Going Down').",
+                "Materialized tracks from cuts_sec (model returned empty tracks).",
+            ],
+        }
+    )
+
+
+def test_hydrate_fills_titles_and_banter_from_notes():
+    plan = hydrate_plan_from_notes(_sbb_like_plan())
+    validate_tracking_plan(plan)
+    assert plan["tracks"][0]["title"] == "Girl from the North Country"
+    assert plan["tracks"][0]["track_type"] == "song"
+    # Track 3 is the banter island between song 2 and song 3 starts.
+    assert plan["tracks"][2]["track_type"] == "banter"
+    assert plan["tracks"][3]["title"] in {
+        "Sailin' Shoes' / 'Cocaine",
+        "Sailin' Shoes / Cocaine",
+        "Doctor Doctor",
+        "Sun's Going Down",
+    }
+    # Prefer first named continuous-music title in the span.
+    assert "Sailin" in (plan["tracks"][3]["title"] or "")
+
+
+def test_hydrate_does_not_overwrite_existing_titles():
+    plan = _sbb_like_plan()
+    plan["tracks"][0]["title"] = "Keep Me"
+    plan["tracks"][0]["track_type"] = "song"
+    out = hydrate_plan_from_notes(plan)
+    assert out["tracks"][0]["title"] == "Keep Me"
+
+
+def test_seed_package_from_show_id_and_overrides():
+    plan = seed_package_metadata(
+        _sbb_like_plan(),
+        artist="Sam Bush",
+        tracker="dat-tracker",
+    )
+    assert plan["package"]["artist"] == "Sam Bush"
+    assert plan["package"]["date"] == "2001-04-27"
+    assert plan["package"]["tracker"] == "dat-tracker"
+    validate_tracking_plan(plan)
+
+
+def test_parse_published_show_txt_merlefest_shape(tmp_path: Path):
+    txt = tmp_path / "show.txt"
+    txt.write_text(
+        "Sam Bush & Jerry Douglass\n"
+        "Merlefest\n"
+        "Wilkes Community college\n"
+        "Wilkesboro,N.C.\n"
+        "4-27-2001\n"
+        "\n"
+        "FOB Nakamichi cm700's>Sony pcm-m1 DAT master\n"
+        "\n"
+        "disc 1\n"
+        "01.Girl from the north country\n"
+    )
+    fields = parse_published_show_txt(txt)
+    assert fields["artist"] == "Sam Bush & Jerry Douglass"
+    assert fields["venue"] == "Merlefest"
+    assert "Wilkesboro" in (fields.get("city") or "")
+    assert fields.get("state") in {"NC", "N.C.", "North Carolina"}
+    assert fields["date"] == "2001-04-27"
+    assert fields["source"] and "Nakamichi" in fields["source"]
+
+
+def test_seed_package_from_published_txt(tmp_path: Path):
+    cal = tmp_path / "data" / "calibration" / "sbb2001-04-27.flac16"
+    cal.mkdir(parents=True)
+    (cal / "info.txt").write_text(
+        "Sam Bush & Jerry Douglass\n"
+        "Merlefest\n"
+        "Wilkesboro, NC\n"
+        "2001-04-27\n"
+        "\n"
+        "FOB Nak > DAT\n"
+    )
+    # Avoid catalog; only published txt + show_id.
+    plan = seed_package_metadata(
+        _sbb_like_plan(),
+        project_root=tmp_path,
+        calibration_dir=cal,
+    )
+    assert plan["package"]["artist"] == "Sam Bush & Jerry Douglass"
+    assert plan["package"]["venue"] == "Merlefest"
+    assert plan["package"]["date"] == "2001-04-27"
+    assert plan["package"]["source"] and "Nak" in plan["package"]["source"]
+    validate_tracking_plan(plan)
+
+
+def test_seed_package_does_not_overwrite_existing(tmp_path: Path):
+    cal = tmp_path / "cal"
+    cal.mkdir()
+    (cal / "info.txt").write_text("Other Artist\nSome Venue\nTown, CA\n2001-04-27\n")
+    plan = _sbb_like_plan()
+    plan["package"]["artist"] = "Keep Me"
+    plan["package"]["venue"] = "Keep Venue"
+    out = seed_package_metadata(plan, project_root=tmp_path, calibration_dir=cal)
+    assert out["package"]["artist"] == "Keep Me"
+    assert out["package"]["venue"] == "Keep Venue"

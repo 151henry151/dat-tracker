@@ -37,9 +37,23 @@ def main() -> int:
     parser.add_argument("--source-line", default=None, dest="source_line")
     parser.add_argument("--transfer", default=None)
     parser.add_argument("--skip-export", action="store_true")
+    parser.add_argument(
+        "--force-unreviewed",
+        action="store_true",
+        help="Package even if review.status is not approved",
+    )
+    parser.add_argument(
+        "--accept-all",
+        action="store_true",
+        help="Approve the plan with Accept-all before packaging",
+    )
     args = parser.parse_args()
 
     plan = json.loads(args.plan.read_text())
+    if args.accept_all:
+        from dat_tracker.review_plan import accept_all_plan_file
+
+        plan = accept_all_plan_file(args.plan, approved_by=args.tracker)
     show_id = plan["show_id"]
     source = args.source
     if source is None and plan.get("source_path"):
@@ -71,6 +85,7 @@ def main() -> int:
         state=args.state,
         source=args.source_line,
         transfer=args.transfer,
+        force_unreviewed=args.force_unreviewed,
     )
     for path in track_paths:
         print(path)

@@ -122,6 +122,7 @@ def test_package_show_from_plan_writes_txt_and_ffp(tmp_path: Path):
         artist="Demo Band",
         date="2001-01-01",
         tracker="dat-tracker",
+        force_unreviewed=True,
     )
     txt = (tmp_path / "demo2001-01-01.txt").read_text()
     ffp = (tmp_path / "fingerprint.ffp.txt").read_text()

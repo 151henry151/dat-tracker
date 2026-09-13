@@ -168,6 +168,9 @@ def run_track_show(
     # Off by default: a 30s forward twin roughly doubled clip count and caused
     # over-segmentation regressions on train; enable explicitly when testing.
     forward_scrub_offset_sec: float = 0.0,
+    force_unreviewed: bool = False,
+    accept_all_review: bool = False,
+    interactive_review: bool = True,
 ) -> dict[str, Any]:
     """Run sparse Gemini tracking and optionally export an etree-style package."""
     root = project_root or Path.cwd()
@@ -494,6 +497,28 @@ def run_track_show(
         ensure_endpoint_cuts(list(plan.get("cuts_sec") or []), duration_sec=duration),
         note="Final plan endpoint normalize.",
     )
+    from dat_tracker.review_plan import (
+        accept_all_plan_file,
+        is_review_approved,
+        migrate_tracking_plan,
+        package_fields_from_plan,
+    )
+
+    plan = migrate_tracking_plan(plan)
+    pkg = plan.setdefault("package", {})
+    pkg.setdefault("artist", artist)
+    pkg.setdefault("date", date)
+    pkg.setdefault("tracker", tracker)
+    if venue is not None:
+        pkg.setdefault("venue", venue)
+    if city is not None:
+        pkg.setdefault("city", city)
+    if state is not None:
+        pkg.setdefault("state", state)
+    if source_line is not None:
+        pkg.setdefault("source", source_line)
+    if transfer is not None:
+        pkg.setdefault("transfer", transfer)
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
 
     result: dict[str, Any] = {
@@ -506,6 +531,61 @@ def run_track_show(
     }
 
     if not skip_package:
+        if accept_all_review and not is_review_approved(plan):
+            plan = accept_all_plan_file(paths["plan"], approved_by=tracker)
+            result["plan"] = plan
+        elif (
+            interactive_review
+            and not force_unreviewed
+            and not is_review_approved(plan)
+        ):
+            import sys
+
+            if sys.stdin.isatty() and sys.stdout.isatty():
+                try:
+                    from dat_tracker.tui_review.app import run_review_app
+
+                    code = run_review_app(
+                        plan_path=paths["plan"],
+                        plan=plan,
+                        source_audio=source_audio,
+                        approved_by=tracker,
+                    )
+                    plan = json.loads(paths["plan"].read_text())
+                    result["plan"] = plan
+                    if code != 0 or not is_review_approved(plan):
+                        raise RuntimeError(
+                            "Review not approved; packaging aborted. "
+                            "Re-run dat-review or pass --accept-all / --force-unreviewed."
+                        )
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "Packaging requires review approval. Install extras with "
+                        "`pip install -e '.[review]'` and run "
+                        f"`dat-review --plan {paths['plan']}` "
+                        "(or --accept-all / --force-unreviewed). "
+                        f"Import error: {exc}"
+                    ) from exc
+            else:
+                raise RuntimeError(
+                    "Packaging requires review approval (non-interactive). "
+                    f"Run: dat-review --plan {paths['plan']} --accept-all "
+                    "or pass --force-unreviewed."
+                )
+
+        fields = package_fields_from_plan(
+            plan,
+            defaults={
+                "artist": artist,
+                "date": date,
+                "tracker": tracker,
+                "venue": venue,
+                "city": city,
+                "state": state,
+                "source": source_line,
+                "transfer": transfer,
+            },
+        )
         track_paths = export_tracks_from_plan(
             source_audio, plan, paths["package_dir"]
         )
@@ -513,14 +593,17 @@ def run_track_show(
             plan,
             track_paths=track_paths,
             out_dir=paths["package_dir"],
-            artist=artist,
-            date=date,
-            tracker=tracker,
-            venue=venue,
-            city=city,
-            state=state,
-            source=source_line,
-            transfer=transfer,
+            artist=str(fields.get("artist") or artist),
+            date=str(fields.get("date") or date),
+            tracker=str(fields.get("tracker") or tracker),
+            venue=fields.get("venue") or venue,
+            city=fields.get("city") or city,
+            state=fields.get("state") or state,
+            source=fields.get("source") or source_line,
+            transfer=fields.get("transfer") or transfer,
+            transferer=str(fields.get("transferer") or "Cate Crowe"),
+            set_label=str(fields.get("set_label") or "One Set"),
+            force_unreviewed=force_unreviewed,
         )
         result["track_paths"] = [str(p) for p in track_paths]
         result["package"] = {k: str(v) for k, v in packaged.items()}

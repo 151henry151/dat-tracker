@@ -129,7 +129,7 @@ def build_draft_tracking_plan(
         notes.append("Draft heuristic only; overall confidence or unknown tracks need LLM.")
 
     plan = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "show_id": show_id,
         "source_path": source_path,
         "duration_sec": float(duration_sec),
@@ -138,6 +138,26 @@ def build_draft_tracking_plan(
         "overall_confidence": round(overall, 3),
         "needs_review": needs_review,
         "notes": notes,
+        "package": {
+            "artist": None,
+            "date": None,
+            "venue": None,
+            "city": None,
+            "state": None,
+            "source": None,
+            "transfer": None,
+            "transferer": None,
+            "tracker": None,
+            "collection_subjects": [],
+            "set_label": None,
+            "notes": None,
+        },
+        "review": {
+            "status": "pending",
+            "approved_at": None,
+            "approved_by": None,
+            "method": None,
+        },
     }
     validate_tracking_plan(plan)
     return plan

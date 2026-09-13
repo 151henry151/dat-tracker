@@ -1,0 +1,481 @@
+"""Textual review application: cuts, labels, package metadata, waveform, playback."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from textual import on
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Header,
+    Input,
+    Label,
+    Select,
+    Static,
+)
+
+from dat_tracker.audio_playback import AudioPlayer, loop_window_around_cut
+from dat_tracker.review_edits import (
+    delete_mid_cut,
+    insert_mid_cut,
+    nudge_cut,
+    set_package_field,
+    set_track_field,
+)
+from dat_tracker.review_plan import approve_plan, migrate_tracking_plan
+from dat_tracker.review_hydrate import (
+    hydrate_plan_from_notes,
+    seed_package_metadata,
+)
+from dat_tracker.tui_review.widgets.package_form import (
+    PACKAGE_FIELD_ORDER,
+    package_form_values,
+)
+from dat_tracker.tui_review.widgets.track_table import format_track_rows
+from dat_tracker.tui_review.widgets.waveform import DetailWaveformView, WaveformView
+from dat_tracker.waveform import load_or_build_envelope
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+class ReviewApp(App[int]):
+    """Required review gate UI with Accept-all fast path."""
+
+    CSS = """
+    Screen {
+        layout: vertical;
+    }
+    #toolbar {
+        height: 3;
+        dock: top;
+    }
+    #package-row {
+        height: auto;
+        max-height: 6;
+    }
+    #tracks {
+        height: 10;
+    }
+    #overview {
+        height: 8;
+    }
+    #detail {
+        height: 10;
+    }
+    #status {
+        dock: bottom;
+        height: 1;
+        background: $surface;
+    }
+    .pkg-input {
+        width: 1fr;
+    }
+    """
+
+    BINDINGS = [
+        Binding("a", "accept_all", "Accept-all", show=True),
+        Binding("s", "save_approve", "Save&approve", show=True),
+        Binding("q", "quit_pending", "Quit", show=True),
+        Binding("left", "nudge_left", "Nudge -0.5s", show=False),
+        Binding("right", "nudge_right", "Nudge +0.5s", show=False),
+        Binding("shift+left", "nudge_left_large", "Nudge -5s", show=False),
+        Binding("shift+right", "nudge_right_large", "Nudge +5s", show=False),
+        Binding("ctrl+left", "nudge_left_fine", "Nudge -0.05s", show=False),
+        Binding("ctrl+right", "nudge_right_fine", "Nudge +0.05s", show=False),
+        Binding("i", "insert_cut", "Insert cut", show=True),
+        Binding("d", "delete_cut", "Delete cut", show=True),
+        Binding("space", "toggle_play", "Play/Pause", show=True),
+        Binding("l", "loop_cut", "Loop cut", show=True),
+        Binding("j", "seek_back", "Seek -2s", show=False),
+        Binding("k", "seek_forward", "Seek +2s", show=False),
+    ]
+
+    def __init__(
+        self,
+        *,
+        plan_path: Path,
+        plan: dict[str, Any],
+        source_audio: Path | None = None,
+        approved_by: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.plan_path = Path(plan_path)
+        self.plan = migrate_tracking_plan(plan)
+        self.plan = hydrate_plan_from_notes(self.plan)
+        self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
+        self.source_audio = Path(source_audio) if source_audio else None
+        self.approved_by = approved_by
+        self.dirty = False
+        self.selected_cut_index = 1 if len(self.plan.get("cuts_sec") or []) > 2 else 0
+        self.selected_track_index = 1
+        self.exit_code = 1
+        self._envelope: dict[str, Any] | None = None
+        self._player = AudioPlayer()
+        self._playhead: float | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        with Horizontal(id="toolbar"):
+            yield Button("Accept-all", id="btn-accept", variant="success")
+            yield Button("Save & approve", id="btn-save", variant="primary")
+            yield Button("Quit", id="btn-quit")
+            yield Label(self.plan.get("show_id") or "", id="show-id")
+        with VerticalScroll(id="package-row"):
+            vals = package_form_values(self.plan)
+            for key in PACKAGE_FIELD_ORDER:
+                with Horizontal():
+                    yield Label(f"{key}:")
+                    yield Input(vals.get(key, ""), id=f"pkg-{key}", classes="pkg-input")
+        yield DataTable(id="tracks")
+        yield WaveformView(id="overview")
+        yield DetailWaveformView(id="detail")
+        with Horizontal():
+            yield Label("Title:")
+            yield Input(id="track-title", classes="pkg-input")
+            yield Label("Type:")
+            yield Select(
+                options=[
+                    ("song", "song"),
+                    ("banter", "banter"),
+                    ("tuning", "tuning"),
+                    ("intro", "intro"),
+                    ("encore_break", "encore_break"),
+                    ("unknown", "unknown"),
+                ],
+                id="track-type",
+                value="song",
+                allow_blank=False,
+            )
+            yield Button("Toggle segue", id="btn-segue")
+        yield Static("", id="status")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        table = self.query_one("#tracks", DataTable)
+        table.add_columns("Idx", "Type", "Title", "Segue", "Dur")
+        table.cursor_type = "row"
+        self._reload_tracks()
+        self._load_envelope()
+        self._refresh_waveforms()
+        self._sync_track_editors()
+        self._set_status("Ready — Accept-all (a) or edit then Save & approve (s)")
+
+    def _load_envelope(self) -> None:
+        if self.source_audio is None or not self.source_audio.is_file():
+            self._envelope = None
+            return
+        cache = self.plan_path.parent / "waveform_envelope.npz"
+        try:
+            self._envelope = load_or_build_envelope(
+                self.source_audio, cache_path=cache, bucket_count=2000
+            )
+        except Exception as exc:  # noqa: BLE001 — show in status, keep UI up
+            self._envelope = None
+            self._set_status(f"Waveform unavailable: {exc}")
+
+    def _reload_tracks(self) -> None:
+        table = self.query_one("#tracks", DataTable)
+        table.clear()
+        for row in format_track_rows(self.plan):
+            table.add_row(*row)
+
+    def _refresh_waveforms(self) -> None:
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        overview = self.query_one("#overview", WaveformView)
+        detail = self.query_one("#detail", DetailWaveformView)
+        if not self._envelope:
+            overview.label = "waveform (no source audio)"
+            overview.peaks = []
+            overview.refresh()
+            return
+        overview.label = "overview (full show; yellow=cuts, cyan band=detail window)"
+        overview.set_envelope(self._envelope)
+        overview.markers_sec = cuts
+        overview.playhead_sec = self._playhead
+        selected = (
+            cuts[self.selected_cut_index]
+            if cuts and 0 <= self.selected_cut_index < len(cuts)
+            else None
+        )
+        overview.selected_marker_sec = selected
+        center = selected if selected is not None else 0.0
+        window = detail.set_detail(
+            self._envelope,
+            center_sec=center,
+            half_window_sec=20.0,
+            markers_sec=cuts,
+            playhead_sec=self._playhead,
+            selected_marker_sec=selected,
+        )
+        overview.viewport_sec = window
+        overview.refresh()
+
+    def _sync_track_editors(self) -> None:
+        tracks = self.plan.get("tracks") or []
+        track = next(
+            (t for t in tracks if int(t["index"]) == self.selected_track_index),
+            tracks[0] if tracks else None,
+        )
+        if not track:
+            return
+        self.query_one("#track-title", Input).value = str(track.get("title") or "")
+        try:
+            self.query_one("#track-type", Select).value = str(
+                track.get("track_type") or "song"
+            )
+        except Exception:
+            pass
+
+    def _set_status(self, msg: str) -> None:
+        dirty = " [dirty]" if self.dirty else ""
+        cuts = self.plan.get("cuts_sec") or []
+        cut_t = (
+            f"cut[{self.selected_cut_index}]={cuts[self.selected_cut_index]:.3f}s"
+            if cuts and 0 <= self.selected_cut_index < len(cuts)
+            else ""
+        )
+        play = " playing" if self._player.is_playing else ""
+        self.query_one("#status", Static).update(
+            f"{msg}{dirty} | {cut_t}{play}"
+        )
+
+    def _write_plan(self, plan: dict[str, Any]) -> None:
+        self.plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+
+    def _collect_package_from_inputs(self) -> None:
+        fields: dict[str, Any] = {}
+        for key in PACKAGE_FIELD_ORDER:
+            widget = self.query_one(f"#pkg-{key}", Input)
+            text = widget.value.strip()
+            fields[key] = text if text else None
+        self.plan = set_package_field(self.plan, **fields)
+
+    def _apply_track_editors(self) -> None:
+        title = self.query_one("#track-title", Input).value.strip()
+        track_type = self.query_one("#track-type", Select).value
+        self.plan = set_track_field(
+            self.plan,
+            track_index=self.selected_track_index,
+            title=title if title else None,
+            track_type=str(track_type) if track_type else None,
+        )
+
+    @on(Button.Pressed, "#btn-accept")
+    def _btn_accept(self) -> None:
+        self.action_accept_all()
+
+    @on(Button.Pressed, "#btn-save")
+    def _btn_save(self) -> None:
+        self.action_save_approve()
+
+    @on(Button.Pressed, "#btn-quit")
+    def _btn_quit(self) -> None:
+        self.action_quit_pending()
+
+    @on(Button.Pressed, "#btn-segue")
+    def _btn_segue(self) -> None:
+        tracks = self.plan.get("tracks") or []
+        track = next(
+            (t for t in tracks if int(t["index"]) == self.selected_track_index),
+            None,
+        )
+        if not track:
+            return
+        self.plan = set_track_field(
+            self.plan,
+            track_index=self.selected_track_index,
+            segue_into_next=not bool(track.get("segue_into_next")),
+        )
+        self.dirty = True
+        self._reload_tracks()
+        self._set_status("Toggled segue")
+
+    @on(DataTable.RowSelected, "#tracks")
+    def _row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.cursor_row is None:
+            return
+        self.selected_track_index = int(event.cursor_row) + 1
+        # Select the cut at the start of this track when possible.
+        tracks = self.plan.get("tracks") or []
+        if 0 <= event.cursor_row < len(tracks):
+            start = float(tracks[event.cursor_row]["start_sec"])
+            cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+            if cuts:
+                self.selected_cut_index = min(
+                    range(len(cuts)), key=lambda i: abs(cuts[i] - start)
+                )
+        self._sync_track_editors()
+        self._refresh_waveforms()
+        self._set_status("Selected track")
+
+    def action_accept_all(self) -> None:
+        self._player.stop()
+        self._collect_package_from_inputs()
+        approved = approve_plan(
+            self.plan, method="accept_all", approved_by=self.approved_by
+        )
+        self._write_plan(approved)
+        self.plan = approved
+        self.dirty = False
+        self.exit_code = 0
+        self._set_status("Approved (accept_all)")
+        self.exit(self.exit_code)
+
+    def action_save_approve(self) -> None:
+        self._player.stop()
+        self._collect_package_from_inputs()
+        self._apply_track_editors()
+        approved = approve_plan(
+            self.plan, method="edited", approved_by=self.approved_by
+        )
+        self._write_plan(approved)
+        self.plan = approved
+        self.dirty = False
+        self.exit_code = 0
+        self._set_status("Approved (edited)")
+        self.exit(self.exit_code)
+
+    def action_quit_pending(self) -> None:
+        self._player.stop()
+        if self.dirty:
+            self._collect_package_from_inputs()
+            self._apply_track_editors()
+            pending = migrate_tracking_plan(self.plan)
+            pending["review"] = {
+                "status": "pending",
+                "approved_at": None,
+                "approved_by": None,
+                "method": None,
+            }
+            self._write_plan(pending)
+        self.exit_code = 1
+        self.exit(self.exit_code)
+
+    def action_nudge_cut(self, delta: float) -> None:
+        self.plan = nudge_cut(
+            self.plan, cut_index=self.selected_cut_index, delta_sec=float(delta)
+        )
+        self.dirty = True
+        self._reload_tracks()
+        self._refresh_waveforms()
+        self._set_status(f"Nudged {delta:+.2f}s")
+
+    def action_nudge_left(self) -> None:
+        self.action_nudge_cut(-0.5)
+
+    def action_nudge_right(self) -> None:
+        self.action_nudge_cut(0.5)
+
+    def action_nudge_left_large(self) -> None:
+        self.action_nudge_cut(-5.0)
+
+    def action_nudge_right_large(self) -> None:
+        self.action_nudge_cut(5.0)
+
+    def action_nudge_left_fine(self) -> None:
+        self.action_nudge_cut(-0.05)
+
+    def action_nudge_right_fine(self) -> None:
+        self.action_nudge_cut(0.05)
+    def action_insert_cut(self) -> None:
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        if len(cuts) < 2:
+            return
+        # Insert midway in the segment after selected cut.
+        i = min(self.selected_cut_index, len(cuts) - 2)
+        at = (cuts[i] + cuts[i + 1]) / 2.0
+        self.plan = insert_mid_cut(self.plan, at_sec=at)
+        self.dirty = True
+        self._reload_tracks()
+        self._refresh_waveforms()
+        self._set_status(f"Inserted cut at {at:.3f}s")
+
+    def action_delete_cut(self) -> None:
+        self.plan = delete_mid_cut(self.plan, cut_index=self.selected_cut_index)
+        cuts = self.plan.get("cuts_sec") or []
+        self.selected_cut_index = min(self.selected_cut_index, max(0, len(cuts) - 1))
+        self.dirty = True
+        self._reload_tracks()
+        self._refresh_waveforms()
+        self._set_status("Deleted cut")
+
+    def action_toggle_play(self) -> None:
+        if self._player.is_playing:
+            self._player.stop()
+            self._set_status("Stopped")
+            return
+        self.action_loop_cut()
+
+    def action_loop_cut(self) -> None:
+        if self.source_audio is None or not self.source_audio.is_file():
+            self._set_status("No source audio for playback")
+            return
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        if not cuts:
+            return
+        cut = cuts[self.selected_cut_index]
+        duration = float(self.plan.get("duration_sec") or cuts[-1])
+        start, end = loop_window_around_cut(
+            cut, duration_sec=duration, half_window_sec=8.0
+        )
+        self._playhead = cut
+        self._player.play_segment(
+            self.source_audio, start_sec=start, end_sec=end, loop=True
+        )
+        self._refresh_waveforms()
+        self._set_status(f"Looping {start:.1f}–{end:.1f}s")
+
+    def action_seek(self, delta: float) -> None:
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        if not cuts:
+            return
+        # Seek by moving playhead and restarting a short one-shot.
+        if self._playhead is None:
+            self._playhead = cuts[self.selected_cut_index]
+        self._playhead = max(
+            0.0,
+            min(float(self.plan["duration_sec"]), self._playhead + float(delta)),
+        )
+        if self.source_audio and self.source_audio.is_file():
+            self._player.play_segment(
+                self.source_audio,
+                start_sec=self._playhead,
+                end_sec=min(float(self.plan["duration_sec"]), self._playhead + 3.0),
+                loop=False,
+            )
+        self._refresh_waveforms()
+        self._set_status(f"Seek {self._playhead:.3f}s")
+
+    def action_seek_back(self) -> None:
+        self.action_seek(-2.0)
+
+    def action_seek_forward(self) -> None:
+        self.action_seek(2.0)
+    def on_unmount(self) -> None:
+        self._player.stop()
+
+
+def run_review_app(
+    *,
+    plan_path: Path,
+    plan: dict[str, Any],
+    source_audio: Path | None = None,
+    approved_by: str | None = None,
+) -> int:
+    app = ReviewApp(
+        plan_path=plan_path,
+        plan=plan,
+        source_audio=source_audio,
+        approved_by=approved_by,
+    )
+    result = app.run()
+    if isinstance(result, int):
+        return result
+    return int(getattr(app, "exit_code", 1))
