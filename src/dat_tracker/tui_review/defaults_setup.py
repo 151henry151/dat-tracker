@@ -17,16 +17,8 @@ from dat_tracker.review_defaults import (
 )
 
 
-_FIELD_HELP = {
-    "transferer": "Who transferred the tapes (e.g. Cate Crowe)",
-    "transfer": "Transfer lineage string (e.g. DAT > PCM-2600 > FLAC)",
-    "tracker": "Who tracks & uploads (your name / handle)",
-    "set_label": "Default setlist heading (usually One Set)",
-}
-
-
 class DefaultsSetupApp(App[bool]):
-    """Collect operator defaults; Save writes XDG (or DAT_TRACKER_DEFAULTS)."""
+    """Collect tracker name; Save writes XDG (or DAT_TRACKER_DEFAULTS)."""
 
     CSS = """
     #hint {
@@ -63,18 +55,19 @@ class DefaultsSetupApp(App[bool]):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Static(
-            "Set defaults used for every show when packaging credits are blank. "
+            "Set your tracker name (Tracked & Uploaded by). "
             f"Saved to {user_defaults_path()} (or $DAT_TRACKER_DEFAULTS). "
-            "Skip to continue without saving; set_label still defaults to “One Set”.",
+            "Transfer lineage, transferer, and set_label are edited per show in review; "
+            "set_label still soft-defaults to “One Set”.",
             id="hint",
         )
         for key in OPERATOR_DEFAULT_KEYS:
             with Vertical(classes="row"):
                 yield Label(f"{key}:")
                 yield Input(
-                    value=self._existing.get(key, "One Set" if key == "set_label" else ""),
+                    value=self._existing.get(key, ""),
                     id=f"def-{key}",
-                    placeholder=_FIELD_HELP.get(key, ""),
+                    placeholder="Who tracks & uploads (your name / handle)",
                 )
         with Vertical(id="actions"):
             yield Button("Save defaults", id="btn-save", variant="primary")
@@ -86,9 +79,8 @@ class DefaultsSetupApp(App[bool]):
             key: self.query_one(f"#def-{key}", Input).value.strip()
             for key in OPERATOR_DEFAULT_KEYS
         }
-        path = save_operator_defaults(fields, project_root=self.project_root)
+        save_operator_defaults(fields, project_root=self.project_root)
         self.exit(True)
-        _ = path
 
     def action_skip(self) -> None:
         self.exit(False)

@@ -70,6 +70,15 @@ def test_prefer_plan_path_gemini_first(tmp_path: Path):
     assert prefer_plan_path(work) == gem
 
 
+def test_prefer_plan_path_skips_as_delivered(tmp_path: Path):
+    work = tmp_path / "show"
+    work.mkdir()
+    (work / "tracking_plan_as_delivered.json").write_text("{}")
+    gem = work / "tracking_plan_gemini.json"
+    gem.write_text("{}")
+    assert prefer_plan_path(work) == gem
+
+
 def test_resolve_source_audio_relative_and_fallback(tmp_path: Path):
     root = tmp_path
     src = root / "data" / "calibration" / "demo" / "synthetic_continuous.flac"

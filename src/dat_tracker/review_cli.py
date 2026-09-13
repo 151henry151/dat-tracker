@@ -185,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--setup-defaults",
         action="store_true",
-        help="Open the operator defaults form (transferer/transfer/tracker/set_label) and exit",
+        help="Open the tracker-name defaults form and exit",
     )
     parser.add_argument(
         "--skip-defaults-prompt",
@@ -226,8 +226,7 @@ def main(argv: list[str] | None = None) -> int:
             run_defaults_setup = None  # type: ignore[assignment]
         if run_defaults_setup is not None:
             print(
-                "No operator defaults yet — set transferer/transfer/tracker "
-                "(used when those package fields are blank).",
+                "No tracker default yet — set your name for “Tracked & Uploaded by”.",
                 file=sys.stderr,
             )
             run_defaults_setup(project_root=project_root)

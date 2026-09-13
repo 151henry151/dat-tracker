@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from dat_tracker.review_plan import migrate_tracking_plan
-from dat_tracker.tui_review.widgets.package_form import package_form_values
+from dat_tracker.tui_review.widgets.package_form import (
+    PACKAGE_FIELD_ORDER,
+    package_field_tooltip,
+    package_form_values,
+)
 from dat_tracker.tui_review.widgets.track_table import format_track_rows
 
 
@@ -83,6 +87,17 @@ def test_package_form_values_defaults():
     assert vals["artist"] == ""
     plan["package"]["artist"] = "Demo"
     assert package_form_values(plan)["artist"] == "Demo"
+
+
+def test_package_field_tooltips_cover_all_fields_and_mention_ia():
+    for key in PACKAGE_FIELD_ORDER:
+        tip = package_field_tooltip(key)
+        assert tip
+        assert len(tip) > 20
+    assert "creator" in package_field_tooltip("artist")
+    assert "coverage" in package_field_tooltip("city")
+    assert "lineage" in package_field_tooltip("transfer")
+    assert "transferer" in package_field_tooltip("transferer")
 
 
 def test_package_form_values_preserves_seeded_fields():
@@ -166,6 +181,7 @@ def test_review_app_package_inputs_receive_seeded_values():
             assert date.value == "2001-04-27"
             assert venue.value == "Merlefest"
             assert artist.compact is True
+            assert artist.tooltip and "creator" in str(artist.tooltip)
             artist.focus()
             await pilot.pause()
             # Jump to end of "Sam Bush" then append.

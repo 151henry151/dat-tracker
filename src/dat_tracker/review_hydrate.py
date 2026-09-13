@@ -94,12 +94,23 @@ def _banter_hits_in_span(notes: list[str], *, start: float, end: float) -> int:
     return hits
 
 
+_TYPE_DEFAULT_TITLE = {
+    "banter": "Banter",
+    "tuning": "Tuning",
+    "intro": "Intro",
+    "encore_break": "Encore break",
+}
+
+
 def hydrate_plan_from_notes(plan: dict[str, Any]) -> dict[str, Any]:
     """When Gemini left tracks empty, recover titles/types from listen notes.
 
     Gemini often returns ``tracks: []`` and only names songs inside REJECT/ACCEPT
     note text (``continuous music ('Title')``). The materializer then creates
     unknown/null tracks — this pass fills blanks without overwriting edits.
+
+    Non-song types without a title get Jon/etree-style defaults (``Banter``,
+    ``Intro``, …) matching ``package._title_for_setlist``.
     """
     plan = migrate_tracking_plan(plan)
     notes = [str(n) for n in (plan.get("notes") or [])]
@@ -110,19 +121,31 @@ def hydrate_plan_from_notes(plan: dict[str, Any]) -> dict[str, Any]:
         end = float(track["end_sec"])
         titles = _titles_in_span(notes, start=start, end=end)
         banter_hits = _banter_hits_in_span(notes, start=start, end=end)
+        track_type = str(track.get("track_type") or "unknown")
 
-        if not track.get("title") and titles:
-            # Prefer the first named title in the span (usually the song).
+        # Continuous-music note titles belong on songs (or still-unknown
+        # tracks we may promote to song). Never stamp them onto banter/etc.
+        if (
+            not track.get("title")
+            and titles
+            and track_type in {"song", "unknown"}
+        ):
             track["title"] = titles[0]
             changed = True
 
-        track_type = str(track.get("track_type") or "unknown")
         if track_type == "unknown":
             if banter_hits > 0 and not titles:
                 track["track_type"] = "banter"
                 changed = True
             elif titles or (end - start) >= 60.0:
                 track["track_type"] = "song"
+                changed = True
+            track_type = str(track.get("track_type") or "unknown")
+
+        if not track.get("title"):
+            default = _TYPE_DEFAULT_TITLE.get(track_type)
+            if default:
+                track["title"] = default
                 changed = True
 
         if changed and "hydrated_from_notes" not in (track.get("evidence") or []):
@@ -336,9 +359,20 @@ def seed_package_metadata(
 
     defaults = merge_builtin_fallbacks(load_operator_defaults(project_root=root))
 
+    def _unset(key: str, cur: Any) -> bool:
+        if cur in (None, ""):
+            return True
+        # Earlier seeds wrote the soft builtin; allow a real operator default to win.
+        if key == "tracker" and str(cur).strip().lower() in {
+            "dat-tracker",
+            "your name",
+        }:
+            return True
+        return False
+
     def _set(key: str, *candidates: Any) -> None:
         cur = pkg.get(key)
-        if cur not in (None, ""):
+        if not _unset(key, cur):
             return
         for cand in candidates:
             if cand not in (None, ""):
@@ -362,8 +396,8 @@ def seed_package_metadata(
     _set("city", city, published.get("city"))
     _set("state", state, published.get("state"))
     _set("source", source, published.get("source"))
-    _set("transfer", transfer, published.get("transfer"), defaults.get("transfer"))
-    _set("transferer", published.get("transferer"), defaults.get("transferer"))
+    _set("transfer", transfer, published.get("transfer"))
+    _set("transferer", published.get("transferer"))
     _set("set_label", published.get("set_label"), defaults.get("set_label"))
     _set("notes", published.get("notes"))
     plan["package"] = pkg

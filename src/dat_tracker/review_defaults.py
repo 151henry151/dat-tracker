@@ -7,12 +7,9 @@ import os
 from pathlib import Path
 from typing import Any
 
-OPERATOR_DEFAULT_KEYS = (
-    "transfer",
-    "transferer",
-    "tracker",
-    "set_label",
-)
+# Fields collected by `dat-review --setup-defaults` / first-run prompt.
+# transfer / transferer / set_label are per-show (or soft built-ins), not dump-wide.
+OPERATOR_DEFAULT_KEYS = ("tracker",)
 
 _BUILTIN_FALLBACKS = {
     "set_label": "One Set",
@@ -43,7 +40,7 @@ def resolve_defaults_path(*, project_root: Path | None = None) -> Path | None:
     override = os.environ.get("DAT_TRACKER_DEFAULTS")
     if override:
         path = Path(override)
-        return path if path.is_file() else path  # may not exist yet
+        return path if path.is_file() else path
     project = project_defaults_path(project_root)
     if project.is_file():
         return project
@@ -77,14 +74,16 @@ def load_operator_defaults(*, project_root: Path | None = None) -> dict[str, str
             val = raw.get(key)
             if val is not None and str(val).strip():
                 out[key] = str(val).strip()
-        return out
+        # Prefer this file only when it actually has operator keys; else try next.
+        if out:
+            return out
     return {}
 
 
 def defaults_are_configured(*, project_root: Path | None = None) -> bool:
-    """True when transferer or transfer is set (operator has run setup)."""
+    """True when tracker is set (operator has run setup)."""
     loaded = load_operator_defaults(project_root=project_root)
-    return bool(loaded.get("transferer") or loaded.get("transfer") or loaded.get("tracker"))
+    return bool(loaded.get("tracker"))
 
 
 def save_operator_defaults(
@@ -113,6 +112,9 @@ def save_operator_defaults(
                 existing = {}
         except (OSError, json.JSONDecodeError):
             existing = {}
+    # Drop legacy dump-wide keys; those belong on each show.
+    for legacy in ("transfer", "transferer", "set_label"):
+        existing.pop(legacy, None)
     for key in OPERATOR_DEFAULT_KEYS:
         if key not in fields:
             continue

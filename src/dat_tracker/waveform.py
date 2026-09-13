@@ -218,6 +218,33 @@ def _resample_peaks(peaks: list[float] | np.ndarray, width: int) -> np.ndarray:
     return out
 
 
+def _display_amplitudes(
+    peaks: list[float] | np.ndarray,
+    *,
+    low_percentile: float = 5.0,
+    high_percentile: float = 99.0,
+    gamma: float = 0.85,
+) -> np.ndarray:
+    """Exaggerate envelope for display: local normalize, contrast stretch, gamma.
+
+    Gamma closer to 1 keeps peaks pointier; values <<1 fatten mids into blobs.
+    """
+    arr = np.asarray(peaks, dtype=float)
+    if arr.size == 0:
+        return arr
+    peak = float(np.max(arr))
+    if peak > 0:
+        arr = arr / peak
+    else:
+        return arr
+    lo = float(np.percentile(arr, low_percentile))
+    hi = float(np.percentile(arr, high_percentile))
+    if hi > lo:
+        arr = np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
+    gamma = max(0.05, float(gamma))
+    return np.power(arr, gamma)
+
+
 def _format_mmss(sec: float) -> str:
     sec = max(0.0, float(sec))
     m = int(sec // 60)
@@ -246,6 +273,24 @@ def render_time_ruler(*, duration_sec: float, width: int) -> str:
     return "".join(chars)
 
 
+# Braille dot bit masks: rows 0..3 (top→bottom), cols 0..1 (left→right).
+_BRAILLE_DOTS = (
+    (0x01, 0x08),
+    (0x02, 0x10),
+    (0x04, 0x20),
+    (0x40, 0x80),
+)
+
+
+def _braille_char(dots: list[list[bool]]) -> str:
+    code = 0x2800
+    for row in range(4):
+        for col in range(2):
+            if dots[row][col]:
+                code |= _BRAILLE_DOTS[row][col]
+    return chr(code)
+
+
 def render_envelope_panel(
     peaks: list[float] | np.ndarray,
     *,
@@ -259,34 +304,40 @@ def render_envelope_panel(
     return_grid: bool = False,
     return_meta: bool = False,
 ):
-    """Render a multi-row amplitude silhouette with cut/playhead overlays.
+    """Render a multi-row braille-dot amplitude silhouette with cut overlays.
 
-    Uses max-pooled columns and half-block characters (``▄``) for smoother
-    vertical resolution than solid ``█`` stair-steps.
-
-    Returns a plain multiline string by default. With ``return_grid=True``,
-    returns a list of row character lists (and optionally meta when
-    ``return_meta=True``).
+    Centered *filled* envelope. True silence (amp≈0) is a single mid-row of
+    ``·`` periods — not a thick braille band. Plain Unicode only.
     """
     width = max(1, int(width))
     height = max(1, int(height))
-    sampled = _resample_peaks(peaks, width)
-    # Sqrt so quiet gaps read as gaps instead of a flat wall.
-    amp = np.sqrt(np.clip(sampled, 0.0, 1.0))
-    # Two half-rows per text row → smoother tops.
-    half_levels = amp * (height * 2)
-    half_levels = np.clip(np.round(half_levels), 0, height * 2).astype(int)
+    # Two horizontal samples per braille cell.
+    sampled = _resample_peaks(peaks, width * 2)
+    amp = _display_amplitudes(sampled)
+    total_dot_rows = height * 4
+    half_span = max(1, total_dot_rows // 2)
+    mid = total_dot_rows / 2.0
+    mid_row = height // 2
+    radius = np.clip(np.round(amp * half_span), 0, half_span).astype(int)
 
     grid = [[" " for _ in range(width)] for _ in range(height)]
-    for x in range(width):
-        halves = int(half_levels[x])
-        full = halves // 2
-        partial = halves % 2
-        for y in range(height - full, height):
-            grid[y][x] = "█"
-        if partial and full < height:
-            top = height - full - 1
-            grid[top][x] = "▄"
+    for cx in range(width):
+        r0 = int(radius[cx * 2])
+        r1 = int(radius[cx * 2 + 1])
+        if max(r0, r1) == 0:
+            # Silence: one period on the center text row only.
+            grid[mid_row][cx] = "·"
+            continue
+        for cy in range(height):
+            dots = [[False, False] for _ in range(4)]
+            for local_r in range(4):
+                global_r = cy * 4 + local_r
+                center_dist = abs((global_r + 0.5) - mid)
+                for local_c, r in ((0, r0), (1, r1)):
+                    if center_dist <= float(r):
+                        dots[local_r][local_c] = True
+            ch = _braille_char(dots)
+            grid[cy][cx] = " " if ch == "\u2800" else ch
 
     dur = float(duration_sec) if duration_sec is not None else float(len(peaks) or 1)
     viewport_cols: tuple[int, int] | None = None
@@ -298,7 +349,9 @@ def render_envelope_panel(
         viewport_cols = (v0, v1)
         for x in range(v0, v1 + 1):
             for y in range(height):
-                if grid[y][x] == " ":
+                # Only tick the midline — filling every empty cell made a thick
+                # period slab through silence inside the detail window band.
+                if y == mid_row and grid[y][x] == " ":
                     grid[y][x] = "·"
 
     for t in markers_sec or []:

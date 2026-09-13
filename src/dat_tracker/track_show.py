@@ -520,6 +520,9 @@ def run_track_show(
     if transfer is not None:
         pkg.setdefault("transfer", transfer)
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
+    from dat_tracker.review_baseline import write_as_delivered_snapshot
+
+    write_as_delivered_snapshot(paths["plan"], plan, overwrite=True)
 
     result: dict[str, Any] = {
         "plan": plan,

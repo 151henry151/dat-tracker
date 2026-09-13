@@ -96,12 +96,30 @@ def test_hydrate_fills_titles_and_banter_from_notes():
     assert "Sailin" in (plan["tracks"][3]["title"] or "")
 
 
-def test_hydrate_does_not_overwrite_existing_titles():
+def test_hydrate_does_not_title_banter_from_song_notes():
     plan = _sbb_like_plan()
-    plan["tracks"][0]["title"] = "Keep Me"
     plan["tracks"][0]["track_type"] = "song"
+    plan["tracks"][0]["title"] = "Girl from the North Country"
+    # Split-like banter island that still overlaps a continuous-music note time.
+    plan["tracks"][1]["track_type"] = "banter"
+    plan["tracks"][1]["title"] = None
+    plan["tracks"][1]["start_sec"] = 250.0
+    plan["tracks"][1]["end_sec"] = 375.3
     out = hydrate_plan_from_notes(plan)
-    assert out["tracks"][0]["title"] == "Keep Me"
+    assert out["tracks"][1]["track_type"] == "banter"
+    # Jon/etree style: blank banter gets the literal title "Banter", not a song name.
+    assert out["tracks"][1].get("title") == "Banter"
+
+
+def test_hydrate_fills_type_default_titles():
+    plan = _sbb_like_plan()
+    plan["tracks"][2]["track_type"] = "banter"
+    plan["tracks"][2]["title"] = None
+    plan["notes"] = [
+        "REJECT 581.800s: mid-banter joke inside extended stage break.",
+    ]
+    out = hydrate_plan_from_notes(plan)
+    assert out["tracks"][2]["title"] == "Banter"
 
 
 def test_seed_package_from_show_id_and_overrides():

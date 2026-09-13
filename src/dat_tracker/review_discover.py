@@ -13,6 +13,13 @@ PLAN_NAME_PREFERENCE = (
     "tracking_plan.json",
 )
 
+# Never treat the LLM baseline snapshot as the working review plan.
+_PLAN_GLOB_SKIP = frozenset(
+    {
+        "tracking_plan_as_delivered.json",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ReviewableShow:
@@ -36,7 +43,11 @@ def prefer_plan_path(work_dir: Path) -> Path | None:
         candidate = work_dir / name
         if candidate.is_file():
             return candidate
-    matches = sorted(work_dir.glob("tracking_plan*.json"))
+    matches = sorted(
+        p
+        for p in work_dir.glob("tracking_plan*.json")
+        if p.name not in _PLAN_GLOB_SKIP
+    )
     return matches[0] if matches else None
 
 

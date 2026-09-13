@@ -115,7 +115,7 @@ class WaveformView(Widget):
                     styled.append(ch, style="bold cyan")
                 elif ch == "·":
                     styled.append(ch, style="dim cyan")
-                elif ch in ("▄", "█"):
+                elif "\u2800" <= ch <= "\u28ff":
                     styled.append(ch, style="bright_white")
                 else:
                     styled.append(ch)

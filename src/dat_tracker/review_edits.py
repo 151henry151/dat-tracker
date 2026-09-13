@@ -12,33 +12,70 @@ from dat_tracker.tracking_plan import validate_tracking_plan
 _TRACK_TYPES = {"song", "banter", "tuning", "intro", "encore_break", "unknown"}
 
 
-def _preserve_track_meta(old_tracks: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
-    return {int(t["index"]): t for t in old_tracks}
+def _preserve_track_meta(old_tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(t) for t in old_tracks]
+
+
+def _overlap_sec(a0: float, a1: float, b0: float, b1: float) -> float:
+    return max(0.0, min(a1, b1) - max(a0, b0))
 
 
 def _reapply_meta(
     plan: dict[str, Any],
-    old_by_index: dict[int, dict[str, Any]],
+    old_tracks: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Copy titles/types/segues onto rebuilt tracks by index when possible."""
+    """Copy titles/types onto rebuilt tracks by time overlap (not by index).
+
+    Index-based copy breaks when a cut is inserted: banter slots pick up the
+    next song's title. After a split, only the fragment with the greatest
+    overlap keeps the parent title; other fragments stay untitled.
+    """
     tracks = list(plan.get("tracks") or [])
+    if not old_tracks:
+        plan["tracks"] = tracks
+        return plan
+
+    # new_idx -> (old_idx, overlap)
+    assignment: list[tuple[int, float]] = []
     for track in tracks:
-        prev = old_by_index.get(int(track["index"]))
-        if not prev:
-            # Fall back to nearest old track by start time.
-            start = float(track["start_sec"])
-            if old_by_index:
-                prev = min(
-                    old_by_index.values(),
-                    key=lambda t: abs(float(t["start_sec"]) - start),
-                )
-        if not prev:
+        start = float(track["start_sec"])
+        end = float(track["end_sec"])
+        best_i = -1
+        best_ov = 0.0
+        for i, prev in enumerate(old_tracks):
+            ov = _overlap_sec(
+                start, end, float(prev["start_sec"]), float(prev["end_sec"])
+            )
+            if ov > best_ov:
+                best_ov = ov
+                best_i = i
+        assignment.append((best_i, best_ov))
+
+    # Per old track: which new track won the largest overlap (keeps the title).
+    title_winner: dict[int, int] = {}
+    for new_i, (old_i, ov) in enumerate(assignment):
+        if old_i < 0 or ov <= 0:
             continue
-        track["title"] = prev.get("title")
+        prev = title_winner.get(old_i)
+        if prev is None or ov > assignment[prev][1]:
+            title_winner[old_i] = new_i
+
+    for new_i, track in enumerate(tracks):
+        old_i, ov = assignment[new_i]
+        if old_i < 0 or ov <= 0:
+            continue
+        prev = old_tracks[old_i]
         track["track_type"] = prev.get("track_type") or track.get("track_type")
         track["segue_into_next"] = bool(prev.get("segue_into_next"))
-        track["confidence"] = float(prev.get("confidence") or track.get("confidence") or 0.5)
+        track["confidence"] = float(
+            prev.get("confidence") or track.get("confidence") or 0.5
+        )
         track["evidence"] = list(prev.get("evidence") or track.get("evidence") or [])
+        if title_winner.get(old_i) == new_i:
+            track["title"] = prev.get("title")
+        else:
+            # Split-off fragment — don't clone the song name.
+            track["title"] = None
     plan["tracks"] = tracks
     return plan
 
@@ -61,9 +98,10 @@ def nudge_cut(
     new_t = max(lo, min(hi, cuts[cut_index] + float(delta_sec)))
     cuts[cut_index] = new_t
     old_meta = _preserve_track_meta(list(plan.get("tracks") or []))
-    rebuilt = rebuild_tracks_from_cuts(plan, cuts, note=f"Nudged cut[{cut_index}] by {delta_sec:+.3f}s.")
+    rebuilt = rebuild_tracks_from_cuts(
+        plan, cuts, note=f"Nudged cut[{cut_index}] by {delta_sec:+.3f}s."
+    )
     rebuilt = _reapply_meta(rebuilt, old_meta)
-    # Force endpoints.
     rebuilt["cuts_sec"][0] = 0.0
     rebuilt["cuts_sec"][-1] = duration
     validate_tracking_plan(migrate_tracking_plan(rebuilt))
@@ -80,7 +118,9 @@ def insert_mid_cut(plan: dict[str, Any], *, at_sec: float) -> dict[str, Any]:
     if abs(cuts[-1] - duration) > 1e-6:
         cuts.append(duration)
     old_meta = _preserve_track_meta(list(plan.get("tracks") or []))
-    rebuilt = rebuild_tracks_from_cuts(plan, cuts, note=f"Inserted mid cut at {at_sec:.3f}s.")
+    rebuilt = rebuild_tracks_from_cuts(
+        plan, cuts, note=f"Inserted mid cut at {at_sec:.3f}s."
+    )
     rebuilt = _reapply_meta(rebuilt, old_meta)
     return migrate_tracking_plan(rebuilt)
 

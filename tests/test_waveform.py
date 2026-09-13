@@ -156,14 +156,54 @@ def test_column_to_time_sec_roundtrip():
     assert abs(back - t) < 2.0
 
 
-def test_render_envelope_panel_uses_half_blocks_for_partial_rows():
-    # Amplitude that lands between integer rows should use ▄, not only █/space.
-    peaks = [0.0, 0.35, 0.35, 0.0]
+def test_render_envelope_panel_uses_braille_dots():
+    peaks = [0.0, 0.35, 0.35, 1.0]
     grid = render_envelope_panel(
         peaks, width=4, height=4, duration_sec=1.0, return_grid=True
     )
     flat = "".join("".join(row) for row in grid)
-    assert "▄" in flat or "▀" in flat
+    assert any("\u2801" <= ch <= "\u28ff" for ch in flat)
+    assert "█" not in flat
+
+
+def test_render_envelope_panel_silence_is_single_period_line():
+    peaks = [0.0] * 16
+    grid = render_envelope_panel(
+        peaks, width=8, height=6, duration_sec=1.0, return_grid=True
+    )
+    mid = 3
+    # Only the center text row should be inked; other rows blank.
+    assert all(ch == "·" for ch in grid[mid])
+    for y, row in enumerate(grid):
+        if y == mid:
+            continue
+        assert all(ch == " " for ch in row)
+
+
+def test_render_envelope_panel_loud_is_filled_not_hollow():
+    peaks = [1.0] * 16
+    grid = render_envelope_panel(
+        peaks, width=8, height=8, duration_sec=1.0, return_grid=True
+    )
+    col = 3
+    ink = sum(
+        1 for row in grid if "\u2801" <= row[col] <= "\u28ff"
+    )
+    # Filled full-scale column should ink most rows, not just outline edges.
+    assert ink >= 6
+
+
+def test_render_envelope_panel_is_centered_not_bottom_only():
+    """Loud columns should ink both above and below the vertical midpoint."""
+    peaks = [1.0] * 8
+    grid = render_envelope_panel(
+        peaks, width=4, height=6, duration_sec=1.0, return_grid=True
+    )
+    mid = 3
+    top_half = "".join("".join(row) for row in grid[:mid])
+    bottom_half = "".join("".join(row) for row in grid[mid:])
+    assert any("\u2801" <= ch <= "\u28ff" for ch in top_half)
+    assert any("\u2801" <= ch <= "\u28ff" for ch in bottom_half)
 
 
 def test_resample_uses_max_pool_not_only_interp():

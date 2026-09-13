@@ -29,6 +29,11 @@ from dat_tracker.review_edits import (
     set_package_field,
     set_track_field,
 )
+from dat_tracker.review_baseline import (
+    ensure_as_delivered_snapshot,
+    require_as_delivered,
+    reset_plan_to_as_delivered,
+)
 from dat_tracker.review_plan import approve_plan, migrate_tracking_plan
 from dat_tracker.review_hydrate import (
     hydrate_plan_from_notes,
@@ -36,6 +41,7 @@ from dat_tracker.review_hydrate import (
 )
 from dat_tracker.tui_review.widgets.package_form import (
     PACKAGE_FIELD_ORDER,
+    package_field_tooltip,
     package_form_values,
 )
 from dat_tracker.tui_review.widgets.track_table import format_track_rows
@@ -100,6 +106,7 @@ class ReviewApp(App[int]):
     BINDINGS = [
         Binding("a", "accept_all", "Accept-all", show=True),
         Binding("s", "save_approve", "Save&approve", show=True),
+        Binding("r", "reset_llm", "Reset LLM", show=True),
         Binding("q", "quit_pending", "Quit", show=True),
         Binding("left", "nudge_left", "Nudge ←", show=True),
         Binding("right", "nudge_right", "Nudge →", show=True),
@@ -128,6 +135,9 @@ class ReviewApp(App[int]):
         super().__init__()
         self.plan_path = Path(plan_path)
         self.plan = migrate_tracking_plan(plan)
+        # Snapshot before hydrate so a first-open legacy dir keeps the
+        # on-disk LLM lattice (not titles we fill in-memory).
+        ensure_as_delivered_snapshot(self.plan_path, self.plan)
         self.plan = hydrate_plan_from_notes(self.plan)
         self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
         self.source_audio = Path(source_audio) if source_audio else None
@@ -145,6 +155,7 @@ class ReviewApp(App[int]):
         with Horizontal(id="toolbar"):
             yield Button("Accept-all", id="btn-accept", variant="success")
             yield Button("Save & approve", id="btn-save", variant="primary")
+            yield Button("Reset to LLM", id="btn-reset")
             yield Button("Quit", id="btn-quit")
             yield Label(self.plan.get("show_id") or "", id="show-id")
         with VerticalScroll(id="package-row"):
@@ -155,22 +166,32 @@ class ReviewApp(App[int]):
             for i in range(0, len(keys), 2):
                 with Horizontal(classes="pkg-pair"):
                     left = keys[i]
-                    yield Label(f"{left}:", classes="pkg-label")
-                    yield Input(
+                    tip_l = package_field_tooltip(left)
+                    lbl = Label(f"{left}:", classes="pkg-label")
+                    lbl.tooltip = tip_l
+                    yield lbl
+                    inp = Input(
                         value=vals.get(left, ""),
                         id=f"pkg-{left}",
                         classes="pkg-input",
                         compact=True,
                     )
+                    inp.tooltip = tip_l
+                    yield inp
                     if i + 1 < len(keys):
                         right = keys[i + 1]
-                        yield Label(f"{right}:", classes="pkg-label")
-                        yield Input(
+                        tip_r = package_field_tooltip(right)
+                        lbl_r = Label(f"{right}:", classes="pkg-label")
+                        lbl_r.tooltip = tip_r
+                        yield lbl_r
+                        inp_r = Input(
                             value=vals.get(right, ""),
                             id=f"pkg-{right}",
                             classes="pkg-input",
                             compact=True,
                         )
+                        inp_r.tooltip = tip_r
+                        yield inp_r
         yield DataTable(id="tracks")
         yield WaveformView(id="overview")
         yield DetailWaveformView(id="detail")
@@ -328,6 +349,10 @@ class ReviewApp(App[int]):
     def _btn_save(self) -> None:
         self.action_save_approve()
 
+    @on(Button.Pressed, "#btn-reset")
+    def _btn_reset(self) -> None:
+        self.action_reset_llm()
+
     @on(Button.Pressed, "#btn-quit")
     def _btn_quit(self) -> None:
         self.action_quit_pending()
@@ -433,6 +458,31 @@ class ReviewApp(App[int]):
         self.exit_code = 0
         self._set_status("Approved (edited)")
         self.exit(self.exit_code)
+
+    def action_reset_llm(self) -> None:
+        """Restore cuts/tracks from the as-delivered LLM snapshot; keep package."""
+        try:
+            delivered = require_as_delivered(self.plan_path)
+        except FileNotFoundError as exc:
+            self._set_status(str(exc))
+            return
+        self._collect_package_from_inputs()
+        self.plan = reset_plan_to_as_delivered(
+            self.plan, delivered, keep_package=True
+        )
+        self.plan = hydrate_plan_from_notes(self.plan)
+        self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
+        self.dirty = True
+        self.selected_cut_index = 1 if len(self.plan.get("cuts_sec") or []) > 2 else 0
+        self.selected_track_index = 1
+        self._sync_package_editors()
+        self._reload_tracks()
+        self._refresh_waveforms()
+        self._sync_track_editors()
+        n_cuts = len(self.plan.get("cuts_sec") or [])
+        self._set_status(
+            f"Reset to LLM baseline ({n_cuts} cuts); package fields kept"
+        )
 
     def action_quit_pending(self) -> None:
         self._player.stop()

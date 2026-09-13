@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add operator review defaults (`dat-review --setup-defaults`, first-run prompt) for `transfer` / `transferer` / `tracker` / `set_label`, stored under XDG config or `catalog/operator_defaults.json`.
+- Restore filled centered waveforms; draw true silence as a single mid-row of ``·`` (not a thick braille band).
+- Draw waveforms as a centered outline with a persistent silence baseline (not a solid filled blob); soften display gamma so peaks stay pointier.
+- Exaggerate waveform display with local normalize, percentile contrast, and gamma so dynamics fill more of the panel.
+- Draw review waveforms centered (up and down from the midline) with braille dots.
+- Render review waveforms with Unicode braille dots instead of solid block stair-steps.
+- Add Archive.org / show.txt hover tips on package metadata fields in the review TUI.
+- Replace placeholder package `tracker` value `dat-tracker` with the saved operator default when present.
+- Add operator review defaults (`dat-review --setup-defaults`, first-run prompt) for the tracker name only; `set_label` soft-defaults to `One Set`; transfer/transferer remain per-show fields.
 - Add `dat-review` show picker: with no args, list `data/work` plans and open one; also accept a positional show id (`dat-review <show-id>`).
 - Add multi-row Unicode waveform panels (`render_envelope_panel`) with sqrt amplitude, cut/playhead overlays, detail viewport band, and a time ruler for the review TUI.
 - Parse published calibration show `.txt` headers into empty `package` fields (venue/city/state/source/artist/date) during review hydrate.
@@ -24,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Remap track titles/types after cut insert/delete by time overlap (not track index); keep a song title on only the best-overlapping fragment after a split.
+- Skip continuous-music note titles when hydrating tracks already typed as banter (or other non-song types).
+- Fill blank non-song titles with Jon/etree defaults (`Banter`, `Intro`, `Tuning`, `Encore break`) during review hydrate.
+- Snapshot `tracking_plan_as_delivered.json` when tracking finishes; add review TUI **Reset to LLM** (`r`) to restore cuts/tracks while keeping package fields.
 - Smooth review waveforms with max-pooled columns and half-block tops; use compact package Inputs (default height-3 Inputs were clipped to 1 row — values invisible and not editable); sync package values on mount and show two fields per row.
 - Make cut editing click-driven: click a yellow cut on the overview/detail waveform to select it, then ←/→ (±0.1s; shift ±1s; ctrl ±0.01s) to nudge; `[` / `]` step between cuts.
 - Make `dat-review` resolve plan/source from show id or the picker so end users need not pass long `--plan` / `--source` paths.
