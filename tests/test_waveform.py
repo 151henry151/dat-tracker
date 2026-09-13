@@ -127,3 +127,49 @@ def test_render_time_ruler_width():
     assert len(ruler) == 40
     assert "0:00" in ruler
     assert "2:00" in ruler or "1:" in ruler
+
+
+def test_nearest_cut_index_at_column():
+    from dat_tracker.waveform import nearest_cut_index_at_column
+
+    cuts = [0.0, 25.0, 50.0, 100.0]
+    # Column for 50s on width 21, duration 100 → col 10
+    idx = nearest_cut_index_at_column(
+        cuts, click_col=10, width=21, duration_sec=100.0, max_col_distance=2
+    )
+    assert idx == 2
+    # Far from any cut → None
+    assert (
+        nearest_cut_index_at_column(
+            cuts, click_col=7, width=21, duration_sec=100.0, max_col_distance=1
+        )
+        is None
+    )
+
+
+def test_column_to_time_sec_roundtrip():
+    from dat_tracker.waveform import column_to_time_sec, marker_column
+
+    t = 37.5
+    col = marker_column(t, duration_sec=100.0, width=40)
+    back = column_to_time_sec(col, duration_sec=100.0, width=40)
+    assert abs(back - t) < 2.0
+
+
+def test_render_envelope_panel_uses_half_blocks_for_partial_rows():
+    # Amplitude that lands between integer rows should use ▄, not only █/space.
+    peaks = [0.0, 0.35, 0.35, 0.0]
+    grid = render_envelope_panel(
+        peaks, width=4, height=4, duration_sec=1.0, return_grid=True
+    )
+    flat = "".join("".join(row) for row in grid)
+    assert "▄" in flat or "▀" in flat
+
+
+def test_resample_uses_max_pool_not_only_interp():
+    from dat_tracker.waveform import _resample_peaks
+
+    # Narrow spike must survive downsampling to few columns.
+    peaks = [0.0] * 50 + [1.0] + [0.0] * 50
+    sampled = _resample_peaks(peaks, 10)
+    assert float(sampled.max()) > 0.9

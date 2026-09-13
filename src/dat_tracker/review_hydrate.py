@@ -6,6 +6,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from dat_tracker.review_defaults import (
+    load_operator_defaults,
+    merge_builtin_fallbacks,
+)
 from dat_tracker.review_plan import migrate_tracking_plan
 from dat_tracker.tracking_plan import validate_tracking_plan
 
@@ -330,6 +334,8 @@ def seed_package_metadata(
         if txt is not None:
             published = parse_published_show_txt(txt)
 
+    defaults = merge_builtin_fallbacks(load_operator_defaults(project_root=root))
+
     def _set(key: str, *candidates: Any) -> None:
         cur = pkg.get(key)
         if cur not in (None, ""):
@@ -351,12 +357,14 @@ def seed_package_metadata(
         (catalog or {}).get("date"),
         date_from_id,
     )
-    _set("tracker", tracker, "dat-tracker")
+    _set("tracker", tracker, defaults.get("tracker"))
     _set("venue", venue, published.get("venue"))
     _set("city", city, published.get("city"))
     _set("state", state, published.get("state"))
     _set("source", source, published.get("source"))
-    _set("transfer", transfer, published.get("transfer"))
+    _set("transfer", transfer, published.get("transfer"), defaults.get("transfer"))
+    _set("transferer", published.get("transferer"), defaults.get("transferer"))
+    _set("set_label", published.get("set_label"), defaults.get("set_label"))
     _set("notes", published.get("notes"))
     plan["package"] = pkg
     validate_tracking_plan(plan)

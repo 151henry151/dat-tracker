@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add operator review defaults (`dat-review --setup-defaults`, first-run prompt) for `transfer` / `transferer` / `tracker` / `set_label`, stored under XDG config or `catalog/operator_defaults.json`.
 - Add `dat-review` show picker: with no args, list `data/work` plans and open one; also accept a positional show id (`dat-review <show-id>`).
 - Add multi-row Unicode waveform panels (`render_envelope_panel`) with sqrt amplitude, cut/playhead overlays, detail viewport band, and a time ruler for the review TUI.
 - Parse published calibration show `.txt` headers into empty `package` fields (venue/city/state/source/artist/date) during review hydrate.
@@ -23,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Smooth review waveforms with max-pooled columns and half-block tops; use compact package Inputs (default height-3 Inputs were clipped to 1 row — values invisible and not editable); sync package values on mount and show two fields per row.
+- Make cut editing click-driven: click a yellow cut on the overview/detail waveform to select it, then ←/→ (±0.1s; shift ±1s; ctrl ±0.01s) to nudge; `[` / `]` step between cuts.
 - Make `dat-review` resolve plan/source from show id or the picker so end users need not pass long `--plan` / `--source` paths.
 - Grow review TUI overview/detail waveforms into taller multi-row silhouettes; highlight the detail window on the overview and emphasize the selected cut.
 - Seed review `package` inputs from an explicit repo-root catalog path plus published calibration info `.txt` when present (not cwd-only).

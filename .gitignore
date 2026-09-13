@@ -53,6 +53,9 @@ Thumbs.db
 .env.*
 !.env.example
 
+# Local operator credit defaults (copy from operator_defaults.example.json)
+catalog/operator_defaults.json
+
 # Download / runtime logs (may contain huge curl progress spam)
 logs/
 !logs/.gitkeep

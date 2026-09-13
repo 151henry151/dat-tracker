@@ -345,6 +345,9 @@ Outputs land under `data/work/<show-id>/` (plan JSON, listen clips, optional `pa
 # Easiest: open the show picker (lists data/work plans)
 dat-review
 
+# First run (or anytime): set operator defaults for transferer / transfer / tracker / set_label
+dat-review --setup-defaults
+
 # Or jump straight to one show
 dat-review sbb2001-04-27.flac16
 
@@ -355,11 +358,11 @@ dat-review sbb2001-04-27.flac16 --accept-all
 dat-review --plan data/work/<show-id>/tracking_plan_gemini.json --source path/to.flac
 ```
 
-On open, `dat-review` hydrates blank track titles/types from Gemini listen notes (when the model left `tracks` empty and only named songs in notes) and seeds empty package fields from the published calibration info `.txt` (when present), the calibration catalog, and/or the show-id date. CLI `--artist` / `--date` / `--venue` / etc. override those seeds.
+On open, `dat-review` hydrates blank track titles/types from Gemini listen notes (when the model left `tracks` empty and only named songs in notes) and seeds empty package fields from the published calibration info `.txt` (when present), the calibration catalog, and/or the show-id date. Operator credit fields (`transfer`, `transferer`, `tracker`, `set_label`) come from saved defaults (`~/.config/dat-tracker/review_defaults.json`, or `catalog/operator_defaults.json`, or `$DAT_TRACKER_DEFAULTS`); `set_label` soft-defaults to `One Set`. CLI `--artist` / `--date` / `--venue` / etc. override those seeds.
 
 Waveforms: overview is a multi-row full-show silhouette (yellow cut markers, cyan band = detail window); detail zooms ~±20s around the selected cut with a time ruler.
 
-Keys in the TUI: `a` Accept-all, `s` Save&approve, `q` Quit, arrows nudge cut, `i`/`d` insert/delete cut, Space/`l` play/loop around the selected cut.
+Keys in the TUI: click a yellow cut on the waveform to select it, then `←`/`→` to nudge by 0.1s (`Shift`±1s, `Ctrl`±0.01s); `[`/`]` prev/next cut; `a` Accept-all, `s` Save&approve, `q` Quit; Space/`l` play/loop. Insert/delete cut remain on `i`/`d` (hidden from the footer).
 ### 6. Optional: download from Archive.org
 
 With the venv activated, `ia` comes from the **`internetarchive`** dependency:

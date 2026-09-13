@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from rich.text import Text
+from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
 
 from dat_tracker.waveform import (
+    nearest_cut_index_at_column,
     render_envelope_panel,
     render_time_ruler,
     slice_envelope_window,
@@ -24,7 +26,12 @@ class WaveformView(Widget):
         border: solid $accent;
         padding: 0 1;
     }
+    WaveformView:focus {
+        border: double $accent;
+    }
     """
+
+    can_focus = True
 
     peaks: reactive[list[float]] = reactive(list)
     duration_sec: reactive[float] = reactive(1.0)
@@ -34,6 +41,17 @@ class WaveformView(Widget):
     viewport_sec: reactive[tuple[float, float] | None] = reactive(None)
     label: reactive[str] = reactive("")
     panel_height: reactive[int] = reactive(5)
+    # Absolute cut times (for overview hit-testing / messaging).
+    absolute_markers: reactive[list[float]] = reactive(list)
+    time_offset_sec: reactive[float] = reactive(0.0)
+
+    class CutMarkerClicked(Message):
+        """Posted when the user clicks near a cut marker."""
+
+        def __init__(self, cut_index: int, time_sec: float) -> None:
+            super().__init__()
+            self.cut_index = cut_index
+            self.time_sec = time_sec
 
     def __init__(
         self,
@@ -45,6 +63,8 @@ class WaveformView(Widget):
     ) -> None:
         super().__init__(name=name, id=id, classes=classes)
         self.panel_height = panel_height
+        self._panel_width = 8
+        self._panel_top_row = 1  # title occupies row 0 of the render
 
     def set_envelope(
         self,
@@ -55,15 +75,18 @@ class WaveformView(Widget):
         if window is None:
             self.peaks = [float(p) for p in env["peaks"]]
             self.duration_sec = float(env["duration_sec"])
+            self.time_offset_sec = 0.0
         else:
             start, end = window
             sliced = slice_envelope_window(env, start_sec=start, end_sec=end)
             self.peaks = [float(p) for p in sliced]
             self.duration_sec = max(0.01, end - start)
+            self.time_offset_sec = start
         self.refresh()
 
     def render(self) -> Text:
         width = max(8, self.size.width - 2)
+        self._panel_width = width
         height = max(2, min(self.panel_height, max(2, self.size.height - 3)))
         title = self.label or "waveform"
         if not self.peaks:
@@ -81,16 +104,18 @@ class WaveformView(Widget):
         ruler = render_time_ruler(duration_sec=self.duration_sec, width=width)
         out = Text()
         out.append(title + "\n", style="bold")
-        for i, line in enumerate(panel.splitlines()):
+        for line in panel.splitlines():
             styled = Text()
             for ch in line:
-                if ch in ("|", "║"):
+                if ch == "║":
+                    styled.append(ch, style="bold reverse yellow")
+                elif ch == "|":
                     styled.append(ch, style="bold yellow")
                 elif ch == "▶":
                     styled.append(ch, style="bold cyan")
                 elif ch == "·":
                     styled.append(ch, style="dim cyan")
-                elif ch == "█":
+                elif ch in ("▄", "█"):
                     styled.append(ch, style="bright_white")
                 else:
                     styled.append(ch)
@@ -99,12 +124,47 @@ class WaveformView(Widget):
         out.append(ruler, style="dim")
         return out
 
+    def on_click(self, event) -> None:  # textual.events.Click
+        """Select the nearest cut marker under the click (or nearby)."""
+        self.focus()
+        # event.x/y are relative to the widget; padding is 1 on left.
+        col = int(event.x) - 1
+        if col < 0:
+            col = 0
+        if col >= self._panel_width:
+            col = self._panel_width - 1
+        abs_markers = list(self.absolute_markers) or [
+            float(t) + float(self.time_offset_sec) for t in self.markers_sec
+        ]
+        if not abs_markers:
+            return
+        local_cuts = [float(t) - float(self.time_offset_sec) for t in abs_markers]
+        idx = nearest_cut_index_at_column(
+            local_cuts,
+            click_col=col,
+            width=self._panel_width,
+            duration_sec=self.duration_sec,
+            max_col_distance=3,
+        )
+        if idx is None:
+            from dat_tracker.waveform import column_to_time_sec
+
+            t_local = column_to_time_sec(
+                col, duration_sec=self.duration_sec, width=self._panel_width
+            )
+            abs_t = t_local + float(self.time_offset_sec)
+            idx = min(
+                range(len(abs_markers)),
+                key=lambda i: abs(float(abs_markers[i]) - abs_t),
+            )
+        event.stop()
+        self.post_message(self.CutMarkerClicked(idx, float(abs_markers[idx])))
+
 
 class DetailWaveformView(WaveformView):
     """Detail view stores absolute window start for marker remapping."""
 
     window_start_sec: reactive[float] = reactive(0.0)
-    absolute_markers: reactive[list[float]] = reactive(list)
     absolute_playhead: reactive[float | None] = reactive(None)
 
     DEFAULT_CSS = """
@@ -112,6 +172,9 @@ class DetailWaveformView(WaveformView):
         height: 10;
         border: solid $secondary;
         padding: 0 1;
+    }
+    DetailWaveformView:focus {
+        border: double $secondary;
     }
     """
 
@@ -145,7 +208,7 @@ class DetailWaveformView(WaveformView):
         self.window_start_sec = start
         self.absolute_markers = list(markers_sec or [])
         self.absolute_playhead = playhead_sec
-        self.label = f"detail: {start:.1f}s–{end:.1f}s"
+        self.label = f"detail: {start:.1f}s–{end:.1f}s  (click cut, ←/→ nudge)"
         self.viewport_sec = None
         self.set_envelope(env, window=(start, end))
         local = [m - start for m in self.absolute_markers if start <= m <= end]

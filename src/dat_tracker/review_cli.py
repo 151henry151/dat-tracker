@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from dat_tracker.review_defaults import defaults_are_configured
 from dat_tracker.review_discover import (
     discover_reviewable_shows,
     resolve_show_for_review,
@@ -181,11 +182,55 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--venue", default=None)
     parser.add_argument("--city", default=None)
     parser.add_argument("--state", default=None)
+    parser.add_argument(
+        "--setup-defaults",
+        action="store_true",
+        help="Open the operator defaults form (transferer/transfer/tracker/set_label) and exit",
+    )
+    parser.add_argument(
+        "--skip-defaults-prompt",
+        action="store_true",
+        help="Do not offer first-run defaults setup before the show picker",
+    )
     args = parser.parse_args(argv)
 
     project_root = Path(args.root) if args.root else _project_root()
     work_dir = args.work_dir
     show_id = args.show_opt or args.show
+
+    if args.setup_defaults:
+        try:
+            from dat_tracker.tui_review.defaults_setup import run_defaults_setup
+        except ImportError as exc:
+            print(
+                "Defaults setup requires [review] extras "
+                f"(pip install -e '.[review]'): {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        saved = run_defaults_setup(project_root=project_root)
+        print("Saved operator defaults." if saved else "Skipped.", file=sys.stderr)
+        return 0 if saved else 1
+
+    # First interactive launch: offer defaults if none configured.
+    interactive = (
+        not args.accept_all
+        and args.plan is None
+        and not show_id
+        and not args.skip_defaults_prompt
+    )
+    if interactive and not defaults_are_configured(project_root=project_root):
+        try:
+            from dat_tracker.tui_review.defaults_setup import run_defaults_setup
+        except ImportError:
+            run_defaults_setup = None  # type: ignore[assignment]
+        if run_defaults_setup is not None:
+            print(
+                "No operator defaults yet — set transferer/transfer/tracker "
+                "(used when those package fields are blank).",
+                file=sys.stderr,
+            )
+            run_defaults_setup(project_root=project_root)
 
     plan_path: Path | None = args.plan
     source_from_show: Path | None = None

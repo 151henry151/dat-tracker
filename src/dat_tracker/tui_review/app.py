@@ -57,8 +57,23 @@ class ReviewApp(App[int]):
         dock: top;
     }
     #package-row {
-        height: auto;
-        max-height: 6;
+        height: 14;
+        padding: 0 1;
+        border: solid $panel;
+    }
+    #package-row .pkg-label {
+        width: 11;
+        height: 1;
+        content-align: left middle;
+        color: $text-muted;
+    }
+    #package-row .pkg-input {
+        width: 1fr;
+        height: 1;
+    }
+    #package-row .pkg-pair {
+        height: 1;
+        margin: 0 0 1 0;
     }
     #tracks {
         height: 10;
@@ -74,7 +89,10 @@ class ReviewApp(App[int]):
         height: 1;
         background: $surface;
     }
-    .pkg-input {
+    #track-edit {
+        height: 3;
+    }
+    #track-edit .pkg-input {
         width: 1fr;
     }
     """
@@ -83,14 +101,16 @@ class ReviewApp(App[int]):
         Binding("a", "accept_all", "Accept-all", show=True),
         Binding("s", "save_approve", "Save&approve", show=True),
         Binding("q", "quit_pending", "Quit", show=True),
-        Binding("left", "nudge_left", "Nudge -0.5s", show=False),
-        Binding("right", "nudge_right", "Nudge +0.5s", show=False),
-        Binding("shift+left", "nudge_left_large", "Nudge -5s", show=False),
-        Binding("shift+right", "nudge_right_large", "Nudge +5s", show=False),
-        Binding("ctrl+left", "nudge_left_fine", "Nudge -0.05s", show=False),
-        Binding("ctrl+right", "nudge_right_fine", "Nudge +0.05s", show=False),
-        Binding("i", "insert_cut", "Insert cut", show=True),
-        Binding("d", "delete_cut", "Delete cut", show=True),
+        Binding("left", "nudge_left", "Nudge ←", show=True),
+        Binding("right", "nudge_right", "Nudge →", show=True),
+        Binding("shift+left", "nudge_left_large", "Nudge -1s", show=False),
+        Binding("shift+right", "nudge_right_large", "Nudge +1s", show=False),
+        Binding("ctrl+left", "nudge_left_fine", "Nudge -0.01s", show=False),
+        Binding("ctrl+right", "nudge_right_fine", "Nudge +0.01s", show=False),
+        Binding("[", "prev_cut", "Prev cut", show=True),
+        Binding("]", "next_cut", "Next cut", show=True),
+        Binding("i", "insert_cut", "Insert cut", show=False),
+        Binding("d", "delete_cut", "Delete cut", show=False),
         Binding("space", "toggle_play", "Play/Pause", show=True),
         Binding("l", "loop_cut", "Loop cut", show=True),
         Binding("j", "seek_back", "Seek -2s", show=False),
@@ -128,15 +148,33 @@ class ReviewApp(App[int]):
             yield Button("Quit", id="btn-quit")
             yield Label(self.plan.get("show_id") or "", id="show-id")
         with VerticalScroll(id="package-row"):
+            # Compact Inputs (height 1). Default Input height is 3 and was
+            # clipped by pkg-pair height:1 — values invisible / not editable.
+            keys = list(PACKAGE_FIELD_ORDER)
             vals = package_form_values(self.plan)
-            for key in PACKAGE_FIELD_ORDER:
-                with Horizontal():
-                    yield Label(f"{key}:")
-                    yield Input(vals.get(key, ""), id=f"pkg-{key}", classes="pkg-input")
+            for i in range(0, len(keys), 2):
+                with Horizontal(classes="pkg-pair"):
+                    left = keys[i]
+                    yield Label(f"{left}:", classes="pkg-label")
+                    yield Input(
+                        value=vals.get(left, ""),
+                        id=f"pkg-{left}",
+                        classes="pkg-input",
+                        compact=True,
+                    )
+                    if i + 1 < len(keys):
+                        right = keys[i + 1]
+                        yield Label(f"{right}:", classes="pkg-label")
+                        yield Input(
+                            value=vals.get(right, ""),
+                            id=f"pkg-{right}",
+                            classes="pkg-input",
+                            compact=True,
+                        )
         yield DataTable(id="tracks")
         yield WaveformView(id="overview")
         yield DetailWaveformView(id="detail")
-        with Horizontal():
+        with Horizontal(id="track-edit"):
             yield Label("Title:")
             yield Input(id="track-title", classes="pkg-input")
             yield Label("Type:")
@@ -161,11 +199,22 @@ class ReviewApp(App[int]):
         table = self.query_one("#tracks", DataTable)
         table.add_columns("Idx", "Type", "Title", "Segue", "Dur")
         table.cursor_type = "row"
+        self._sync_package_editors()
         self._reload_tracks()
         self._load_envelope()
         self._refresh_waveforms()
         self._sync_track_editors()
-        self._set_status("Ready — Accept-all (a) or edit then Save & approve (s)")
+        pkg_filled = sum(1 for v in package_form_values(self.plan).values() if v)
+        self._set_status(
+            f"Ready — Accept-all (a) or edit then Save & approve (s)"
+            + (f" | {pkg_filled} package fields seeded" if pkg_filled else "")
+        )
+
+    def _sync_package_editors(self) -> None:
+        """Push plan.package into Inputs after mount."""
+        vals = package_form_values(self.plan)
+        for key in PACKAGE_FIELD_ORDER:
+            self.query_one(f"#pkg-{key}", Input).value = vals.get(key, "")
 
     def _load_envelope(self) -> None:
         if self.source_audio is None or not self.source_audio.is_file():
@@ -195,8 +244,12 @@ class ReviewApp(App[int]):
             overview.peaks = []
             overview.refresh()
             return
-        overview.label = "overview (full show; yellow=cuts, cyan band=detail window)"
+        overview.label = (
+            "overview — click a yellow cut, then ←/→ (±0.1s) "
+            "([ / ] select; shift←/→ ±1s)"
+        )
         overview.set_envelope(self._envelope)
+        overview.absolute_markers = cuts
         overview.markers_sec = cuts
         overview.playhead_sec = self._playhead
         selected = (
@@ -315,6 +368,45 @@ class ReviewApp(App[int]):
         self._refresh_waveforms()
         self._set_status("Selected track")
 
+    @on(WaveformView.CutMarkerClicked)
+    def _cut_marker_clicked(self, event: WaveformView.CutMarkerClicked) -> None:
+        self._select_cut(event.cut_index, status_prefix="Selected cut")
+
+    def _select_cut(self, cut_index: int, *, status_prefix: str = "Selected cut") -> None:
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        if not cuts:
+            return
+        self.selected_cut_index = max(0, min(len(cuts) - 1, int(cut_index)))
+        # Sync track table to the track that begins at this cut (or previous).
+        tracks = self.plan.get("tracks") or []
+        t = cuts[self.selected_cut_index]
+        if tracks:
+            self.selected_track_index = min(
+                tracks,
+                key=lambda tr: abs(float(tr["start_sec"]) - t),
+            )["index"]
+            self.selected_track_index = int(self.selected_track_index)
+            self._sync_track_editors()
+        self._refresh_waveforms()
+        endpoint = self.selected_cut_index in (0, len(cuts) - 1)
+        note = " (start/end fixed — pick a mid cut to nudge)" if endpoint else " — ←/→ nudge"
+        self._set_status(f"{status_prefix}{note}")
+
+    def action_prev_cut(self) -> None:
+        cuts = self.plan.get("cuts_sec") or []
+        if len(cuts) < 2:
+            return
+        # Prefer mid-cuts when stepping.
+        self._select_cut(max(0, self.selected_cut_index - 1), status_prefix="Prev cut")
+
+    def action_next_cut(self) -> None:
+        cuts = self.plan.get("cuts_sec") or []
+        if len(cuts) < 2:
+            return
+        self._select_cut(
+            min(len(cuts) - 1, self.selected_cut_index + 1), status_prefix="Next cut"
+        )
+
     def action_accept_all(self) -> None:
         self._player.stop()
         self._collect_package_from_inputs()
@@ -359,31 +451,42 @@ class ReviewApp(App[int]):
         self.exit(self.exit_code)
 
     def action_nudge_cut(self, delta: float) -> None:
+        cuts = self.plan.get("cuts_sec") or []
+        if not cuts:
+            return
+        if self.selected_cut_index in (0, len(cuts) - 1):
+            self._set_status("Start/end cuts are fixed — click a mid (yellow) cut first")
+            return
+        # Keep focus on overview so further arrow keys keep nudging.
+        try:
+            self.query_one("#overview", WaveformView).focus()
+        except Exception:
+            pass
         self.plan = nudge_cut(
             self.plan, cut_index=self.selected_cut_index, delta_sec=float(delta)
         )
         self.dirty = True
         self._reload_tracks()
         self._refresh_waveforms()
-        self._set_status(f"Nudged {delta:+.2f}s")
+        self._set_status(f"Moved cut {delta:+.2f}s")
 
     def action_nudge_left(self) -> None:
-        self.action_nudge_cut(-0.5)
+        self.action_nudge_cut(-0.1)
 
     def action_nudge_right(self) -> None:
-        self.action_nudge_cut(0.5)
+        self.action_nudge_cut(0.1)
 
     def action_nudge_left_large(self) -> None:
-        self.action_nudge_cut(-5.0)
+        self.action_nudge_cut(-1.0)
 
     def action_nudge_right_large(self) -> None:
-        self.action_nudge_cut(5.0)
+        self.action_nudge_cut(1.0)
 
     def action_nudge_left_fine(self) -> None:
-        self.action_nudge_cut(-0.05)
+        self.action_nudge_cut(-0.01)
 
     def action_nudge_right_fine(self) -> None:
-        self.action_nudge_cut(0.05)
+        self.action_nudge_cut(0.01)
     def action_insert_cut(self) -> None:
         cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
         if len(cuts) < 2:

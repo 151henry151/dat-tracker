@@ -129,6 +129,40 @@ def marker_column(time_sec: float, *, duration_sec: float, width: int) -> int:
     return max(0, min(width - 1, col))
 
 
+def column_to_time_sec(col: int, *, duration_sec: float, width: int) -> float:
+    """Inverse of marker_column (approximate center of the column)."""
+    width = max(1, int(width))
+    duration_sec = max(0.0, float(duration_sec))
+    if width <= 1:
+        return 0.0
+    col = max(0, min(width - 1, int(col)))
+    return (col / (width - 1)) * duration_sec
+
+
+def nearest_cut_index_at_column(
+    cuts_sec: list[float],
+    *,
+    click_col: int,
+    width: int,
+    duration_sec: float,
+    max_col_distance: int = 2,
+) -> int | None:
+    """Return cut index whose marker column is within ``max_col_distance`` of click."""
+    if not cuts_sec or width <= 0 or duration_sec <= 0:
+        return None
+    best_i: int | None = None
+    best_dist: int | None = None
+    for i, t in enumerate(cuts_sec):
+        col = marker_column(float(t), duration_sec=duration_sec, width=width)
+        dist = abs(col - int(click_col))
+        if dist > max_col_distance:
+            continue
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best_i = i
+    return best_i
+
+
 def render_envelope_line(
     peaks: list[float] | np.ndarray,
     *,
@@ -165,14 +199,23 @@ def render_envelope_line(
 
 
 def _resample_peaks(peaks: list[float] | np.ndarray, width: int) -> np.ndarray:
+    """Downsample with max-pooling (preserves spikes); upsample with interp."""
     arr = np.asarray(peaks, dtype=float)
     width = max(1, int(width))
     if arr.size == 0:
         return np.zeros(width, dtype=float)
     if arr.size == width:
         return arr
-    xs = np.linspace(0, arr.size - 1, width)
-    return np.interp(xs, np.arange(arr.size), arr)
+    if arr.size < width:
+        xs = np.linspace(0, arr.size - 1, width)
+        return np.interp(xs, np.arange(arr.size), arr)
+    edges = np.linspace(0, arr.size, width + 1, dtype=int)
+    out = np.zeros(width, dtype=float)
+    for i in range(width):
+        chunk = arr[edges[i] : edges[i + 1]]
+        if chunk.size:
+            out[i] = float(np.max(chunk))
+    return out
 
 
 def _format_mmss(sec: float) -> str:
@@ -218,6 +261,9 @@ def render_envelope_panel(
 ):
     """Render a multi-row amplitude silhouette with cut/playhead overlays.
 
+    Uses max-pooled columns and half-block characters (``▄``) for smoother
+    vertical resolution than solid ``█`` stair-steps.
+
     Returns a plain multiline string by default. With ``return_grid=True``,
     returns a list of row character lists (and optionally meta when
     ``return_meta=True``).
@@ -227,14 +273,20 @@ def render_envelope_panel(
     sampled = _resample_peaks(peaks, width)
     # Sqrt so quiet gaps read as gaps instead of a flat wall.
     amp = np.sqrt(np.clip(sampled, 0.0, 1.0))
-    levels = np.round(amp * height).astype(int)
-    levels = np.clip(levels, 0, height)
+    # Two half-rows per text row → smoother tops.
+    half_levels = amp * (height * 2)
+    half_levels = np.clip(np.round(half_levels), 0, height * 2).astype(int)
 
     grid = [[" " for _ in range(width)] for _ in range(height)]
     for x in range(width):
-        n = int(levels[x])
-        for y in range(height - n, height):
+        halves = int(half_levels[x])
+        full = halves // 2
+        partial = halves % 2
+        for y in range(height - full, height):
             grid[y][x] = "█"
+        if partial and full < height:
+            top = height - full - 1
+            grid[top][x] = "▄"
 
     dur = float(duration_sec) if duration_sec is not None else float(len(peaks) or 1)
     viewport_cols: tuple[int, int] | None = None
