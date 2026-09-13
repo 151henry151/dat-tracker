@@ -14,6 +14,13 @@ from dat_tracker.tui_review.widgets.package_form import (
     package_form_values,
 )
 from dat_tracker.tui_review.widgets.track_table import format_track_rows
+from dat_tracker.tui_review.widgets.waveform import waveform_glyph_style
+
+
+def test_silence_baseline_matches_braille_glyph_color():
+    assert waveform_glyph_style("·") == waveform_glyph_style("⣿")
+    assert waveform_glyph_style("·") == "bright_white"
+    assert waveform_glyph_style("▶") == "bold cyan"
 
 
 def test_format_track_rows():

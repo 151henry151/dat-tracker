@@ -96,6 +96,28 @@ def test_hydrate_fills_titles_and_banter_from_notes():
     assert "Sailin" in (plan["tracks"][3]["title"] or "")
 
 
+def test_hydrate_parses_legacy_time_first_notes():
+    """Older Gemini dumps used ``112.94s: REJECT - continuous music/singing (Title).``"""
+    plan = _sbb_like_plan()
+    plan["notes"] = [
+        "112.94s: REJECT - continuous music/singing (Girl From The North Country).",
+        "375.34s: SNAP to 367.00s - previous song finishes into applause, stage banter onset at ~367s.",
+        "468.00s: REJECT - continuous fast banjo instrumental solo.",
+        "536.38s: SNAP to 530.00s - banjo instrumental ends ~525s, banter onset at ~530s.",
+        "581.80s: REJECT - continuous stage banter ('Amway...').",
+        "644.92s: SNAP to 649.00s - banter ends and next song count-in/first notes start at ~649s.",
+        "737.00s: REJECT - continuous music (Sailing Shoes / Cocaine Blues).",
+    ]
+    out = hydrate_plan_from_notes(plan)
+    assert out["tracks"][0]["title"] == "Girl From The North Country"
+    assert out["tracks"][0]["track_type"] == "song"
+    # SNAP text about banter onset at the cut must not flip the following song.
+    assert out["tracks"][1]["track_type"] == "song"
+    assert out["tracks"][2]["track_type"] == "banter"
+    assert out["tracks"][2]["title"] == "Banter"
+    assert out["tracks"][3]["title"] == "Sailing Shoes / Cocaine Blues"
+
+
 def test_hydrate_does_not_title_banter_from_song_notes():
     plan = _sbb_like_plan()
     plan["tracks"][0]["track_type"] = "song"

@@ -17,6 +17,20 @@ from dat_tracker.waveform import (
 )
 
 
+def waveform_glyph_style(ch: str) -> str | None:
+    """Rich style for one waveform panel glyph, or None for default."""
+    if ch == "║":
+        return "bold reverse yellow"
+    if ch == "|":
+        return "bold yellow"
+    if ch == "▶":
+        return "bold cyan"
+    # Silence baseline · matches braille amplitude dots (not cyan).
+    if ch == "·" or ("\u2800" <= ch <= "\u28ff"):
+        return "bright_white"
+    return None
+
+
 class WaveformView(Widget):
     """Renders a multi-row peak silhouette with cut markers and playhead."""
 
@@ -107,18 +121,11 @@ class WaveformView(Widget):
         for line in panel.splitlines():
             styled = Text()
             for ch in line:
-                if ch == "║":
-                    styled.append(ch, style="bold reverse yellow")
-                elif ch == "|":
-                    styled.append(ch, style="bold yellow")
-                elif ch == "▶":
-                    styled.append(ch, style="bold cyan")
-                elif ch == "·":
-                    styled.append(ch, style="dim cyan")
-                elif "\u2800" <= ch <= "\u28ff":
-                    styled.append(ch, style="bright_white")
-                else:
+                style = waveform_glyph_style(ch)
+                if style is None:
                     styled.append(ch)
+                else:
+                    styled.append(ch, style=style)
             out.append(styled)
             out.append("\n")
         out.append(ruler, style="dim")

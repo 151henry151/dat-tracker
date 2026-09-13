@@ -17,8 +17,13 @@ _NOTE_TIME = re.compile(
     r"^(?:REJECT|ACCEPT|SNAP|IGNORE)\s+(\d+(?:\.\d+)?)s",
     re.IGNORECASE,
 )
+# Older Gemini dumps: ``112.94s: REJECT - continuous music/singing (Title).``
+_NOTE_TIME_LEGACY = re.compile(
+    r"^(\d+(?:\.\d+)?)s\s*:",
+    re.IGNORECASE,
+)
 _MUSIC_TITLE = re.compile(
-    r"continuous music\s*\((.+)\)\s*\.?\s*$",
+    r"continuous music(?:/singing)?\s*\((.+)\)\s*\.?\s*$",
     re.IGNORECASE,
 )
 _DATE_IN_ID = re.compile(r"(20\d{2}|19\d{2})-(\d{2})-(\d{2})")
@@ -60,10 +65,14 @@ def _clean_quoted_title(inner: str) -> str:
 
 
 def _note_time_sec(note: str) -> float | None:
-    match = _NOTE_TIME.match(note.strip())
-    if not match:
-        return None
-    return float(match.group(1))
+    text = note.strip()
+    match = _NOTE_TIME.match(text)
+    if match:
+        return float(match.group(1))
+    match = _NOTE_TIME_LEGACY.match(text)
+    if match:
+        return float(match.group(1))
+    return None
 
 
 def _titles_in_span(
@@ -84,10 +93,16 @@ def _titles_in_span(
 
 
 def _banter_hits_in_span(notes: list[str], *, start: float, end: float) -> int:
+    """Count interior banter evidence; ignore SNAP boundary notes at ``start``."""
     hits = 0
     for note in notes:
         t = _note_time_sec(note)
-        if t is None or not (start <= t < end):
+        # Boundary SNAPs often say "banter onset" while belonging to the cut,
+        # not the body of the following track.
+        if t is None or not (start < t < end):
+            continue
+        text = note.strip()
+        if re.match(r"^(?:\d+(?:\.\d+)?s\s*:\s*)?SNAP\b", text, re.IGNORECASE):
             continue
         if _BANTER_HINT.search(note):
             hits += 1

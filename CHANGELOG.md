@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skip continuous-music note titles when hydrating tracks already typed as banter (or other non-song types).
 - Fill blank non-song titles with Jon/etree defaults (`Banter`, `Intro`, `Tuning`, `Encore break`) during review hydrate.
 - Snapshot `tracking_plan_as_delivered.json` when tracking finishes; add review TUI **Reset to LLM** (`r`) to restore cuts/tracks while keeping package fields.
+- Parse legacy Gemini note timestamps (``112.94s: REJECT - …``) and ``continuous music/singing (Title)`` forms during review hydrate.
+- Draw silence baseline ``·`` in the same bright white as braille waveform dots (not dim cyan).
 - Smooth review waveforms with max-pooled columns and half-block tops; use compact package Inputs (default height-3 Inputs were clipped to 1 row — values invisible and not editable); sync package values on mount and show two fields per row.
 - Make cut editing click-driven: click a yellow cut on the overview/detail waveform to select it, then ←/→ (±0.1s; shift ±1s; ctrl ±0.01s) to nudge; `[` / `]` step between cuts.
 - Make `dat-review` resolve plan/source from show id or the picker so end users need not pass long `--plan` / `--source` paths.
