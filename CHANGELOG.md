@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Document prebuilt ``dat-review`` binary downloads in the README.
+- Restructure the README so end-user download and try-out steps come first, with
+  developer install and background below.
 
 ## [0.1.0] - 2026-09-14
 

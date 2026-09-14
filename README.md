@@ -1,346 +1,202 @@
 # dat-tracker
 
-**dat-tracker** turns long, untrimmed live recordings into etree-style show packages: named FLAC tracks, info text, fingerprints, and tags — with as little manual waveform editing as possible.
+**dat-tracker** helps turn a long, continuous live recording (often one big FLAC from a DAT tape) into a finished show package: separate song tracks, an info text file, fingerprints, and tags — ready for Archive.org / etree-style sharing.
 
-It targets a common archive problem: **track splitting** (also called song boundary detection or cue-sheet generation) on continuous live transfers, especially **DAT → FLAC** dumps that arrive as one file per tape or set with **no embedded track markers**.
+The everyday tool is **`dat-review`**: a terminal app that walks you from “here is my folder of FLACs” through automatic tracking, a review screen, packaging, and (if you want) Archive.org upload.
 
-## The problem
+**Status:** early (**0.1.0**). It is usable for trying the flow on your own continuous FLACs. Batch-uploading a whole dump is **not** recommended yet — tracking quality is still being calibrated (see [PLAN.md](PLAN.md)).
 
-Live transfers often arrive as one long FLAC per tape or set. Turning that into a publishable show means placing every track boundary, naming songs, keeping banter and tuning as their own tracks, marking segues, writing the info file, fingerprints, and tags — then repeating it for the next dump. Done carefully by hand in a waveform editor, that is hours per show and does not scale when someone drops a hundred untrimmed DATs.
+---
 
-Helpers exist, but they rarely finish the job on live soundboard / audience tapes:
+## Try it out (recommended)
 
-- **Silence detection** — `ffmpeg silencedetect`, SoX `silence`, [mp3splt](https://mp3splt.sourceforge.net/) (`-s` silence mode), Audacity “Silence Finder” / “Label Sounds”, pydub `split_on_silence`, and countless “album splitter” GUIs. These work best on studio albums and podcasts with real dead air. Live SBDs keep applause and room tone in the mix; thresholds that work in the studio find nothing on a gig tape, and thresholds that catch applause also fire inside songs or on quiet bridges.
-- **Spectral / energy / onset shifts** — closer to the right idea for live material (instrumentation vs crowd, or a hard attack into the next tune). Examples: RMS/novelty peak pickers, [Audio File Splitter](https://github.com/luckymuck/Audio-File-Splitter), [aubio](https://aubio.org/) (`aubioonset` / `aubiocut`), and MIR libraries such as [madmom](https://github.com/CPJKU/madmom) (onset / beat / downbeat models). They propose *many* plausible events; most are mid-song accents, not etree track starts. You still end up dragging markers.
-- **Music structure analysis (research MSA)** — academic systems that segment songs into verse/chorus/sections or detect “boundaries” in pop recordings. Useful vocabulary and features; not trained on etree conventions (banter as its own track, `>` segues, applause glued to the previous song, etc.), and rarely shipped as a “split this DAT for Archive.org” product.
-- **Fingerprinting / recognition** — ACRCloud, AudD, Shazam-class APIs stamp known studio (or heavily circulated) recordings with timestamps. Fine for a setlist of radio hits; useless for unreleased jams, alternate arrangements, and material that is not in the database.
-- **Cue / CDDB / metadata-driven splitters** — [mp3splt](https://mp3splt.sourceforge.net/) with `.cue` / CDDB / Freedb, Flacon, shntool + cue, FFcuesplitter, foobar2000 playing an embedded cue. These **apply** known cut times; they do not **discover** them. Great once a human (or another tool) already tracked the show.
-- **Fixed-interval / equal-length chops** — mp3splt time mode, audiobook “split every N minutes” tools. Handy for rough navigation; wrong model for songs of uneven length.
-- **Manual waveform / DAW workflows** — Audacity label tracks, Reaper regions, Sound Forge, Izotope RX, etc., often paired with exporters (labels → cue). This is still how most careful live tracking gets done; the cost is human time.
+You do **not** need to install Python or clone this repository to try the app. Use a release binary, install **ffmpeg**, get a free **Gemini API key**, then run `dat-review`.
 
-A realistic workflow with the automatic helpers on a two-hour set is: run detection, then spend a while fixing boundaries. Segues, quiet intros, and stage banter that runs into a count-in defeat a fully automatic silence pass.
+### 1. Download `dat-review`
 
-(As an aside: search for “AI track splitting” and you mostly get **stem** splitters — Demucs, UVR, Spleeter, and friends — vocals/drums/bass separation. That is a different task from chronological track marking on a continuous live recording.)
+1. Open **[Releases](https://github.com/151henry151/dat-tracker/releases)**.
+2. Download the binary for your computer:
+   - **Linux:** `dat-review-linux-x86_64`
+   - **Windows:** `dat-review-windows-x86_64.exe` *(when attached to the release)*
+   - **macOS (Apple Silicon):** `dat-review-macos-arm64` *(when attached to the release)*
+3. Put it somewhere convenient (Desktop, Downloads, or a tools folder).
 
-**dat-tracker** is built for the labor gap: automate the *tracking and packaging* pipeline, calibrate against already-excellent human-tracked shows, and treat remaining misses as rare exceptions — not as “open a waveform UI for every show.”
-
-## Why this approach (and not only classical DSP or a laptop LLM)
-
-**Classical detectors stay in the loop as navigation aids** — silence ends, energy novelty, speech/banter islands from ASR — because they are cheap and local. Alone they do not match careful human packaging: the hard cases are “where does the *next track* start for etree?” (often on banter or a count-in), not “where did RMS spike?”
-
-**An audio-capable LLM listens to short clips around those candidates** (Google Gemini by default) and emits a structured tracking plan: keep / drop / nudge cuts, track types, titles, segues. Sparse clips keep API cost low (cents per show on paid Flash-class models) while still putting a model *in* the decision loop rather than only post-processing a transcript.
-
-**Why not a fully local audio LLM on a typical laptop?** Models that actually *listen* (e.g. open audio-language models in the Qwen2-Audio class) need substantial GPU memory — often on the order of **8–16 GB VRAM** for comfortable inference — and are usually happiest on short clips anyway. A common mobile workstation GPU with ~4 GB VRAM is not a realistic drop-in for that job. Stacks people confuse with “local LLM tracking” — Whisper ASR plus a text-only Ollama/Llama chat model — never hear the music; they only reason about transcripts, which is the brittle path this project deliberately avoids for boundary placement.
-
-**Why not “just train an LLM on Archive.org” yet?** In principle track splitting is a learnable perception problem, and IA has a huge supply of already-tracked packages. The practical recipe is close to what our Tier B calibration already uses: concatenate published tracks into a continuous file, hide the cuts, score recovery (synthetic re-split). Obstacles to a shippable specialist model today:
-
-- **Supervision is packaging policy, not physics** — different trackers disagree on banter-as-track, applause tails, and segue cuts; a model learns *someone’s* conventions unless you curate carefully and hold out by taper/artist.
-- **Synthetic joins ≠ raw DAT** — lossless concatenation is cleaner than real untrimmed tape (dropouts, tune-ups, tape flips). Models can overfit join artifacts and then fail on true continuous masters (our Tier A).
-- **“Train an LLM” is the expensive end of the spectrum** — fine-tuning a large multimodal audio model needs data plumbing, money, and often limited fine-tune APIs. A smaller boundary detector (or distillation from Gemini judgments) may be the right long-term path; it is Phase 2b / research scale, not a substitute for a working sparse-listen loop while we calibrate.
-- **Cost of iteration** — during development, paid cloud audio is cheap per show relative to engineering time; free-tier request caps are the usual friction, not dollar cost at Flash rates.
-
-So the current design is intentional: **cheap local proposals → sparse cloud listening → calibrate hard against held-out human packages**, with room later for RAG over many show.txt files and optional trained specialists — without blocking Live Bluegrass packaging on a full custom training stack.
-
-## What it does
-
-1. **Ingest** continuous FLACs (and catalog them against known Archive.org items when you have them).
-2. **Propose boundaries** with an ensemble of signals — not silence alone: energy/novelty, silence gaps, speech/banter islands (ASR), and (planned) music vs applause classifiers.
-3. **Decide** track cuts, types (song / banter / tuning / intro / …), segues, and titles via an audio-native LLM that listens to sparse clips around candidates (plus show context / future few-shot from calibration packages).
-4. **Export** lossless cuts into etree-style names, Jon/etree-style `show.txt`, fingerprint files, and tags.
-5. **Validate** against held-out, already-tracked packages so the tool does not overfit one dump or one taper’s quirks.
-6. **Reuse** the same flow on other DAT (or similar continuous) dumps via config — Live Bluegrass is the first proving ground, not the only intended use.
-
-## What “good” means here
-
-Matching careful human tracking conventions, for example:
-
-- Banter, tuning, and intros are **tracks**, not deleted dead air.
-- Segues marked with `>` in titles/setlists.
-- Filenames like `artistabbrevYYYY-MM-DD_t01.flac` or `_s1t01` / `_s2t01`.
-- Bundle: FLAC + info `.txt` + fingerprint (`.ffp` / `fingerprint.ffp.txt`) + tags.
-- Honest credit chains for transferer / tracker on Archive.org uploads.
-
-Fully automatic *proposal* is the goal; packaging still goes through a required review gate (`dat-review`) with a one-key **Accept-all** fast path when the plan looks good.
-
-## Status
-
-Early development (**0.1.0**). Version stays at 0.1.0 until Live Bluegrass packaging passes the locked calibration gates in [PLAN.md](PLAN.md). Do **not** treat the dump’s remaining `todo` FLACs as ready to batch yet — calibration quality is still below the bar.
-
-### Done
-
-- Project scaffold (semver, changelog, catalog schema, MIT license).
-- Live Bluegrass Dropbox ingest helpers, IA ground-truth download path, and catalog merge (`already_uploaded` vs `todo`).
-- Tier B external calibration corpus + synthetic re-split harness (train/holdout manifests and scorers).
-- Tier A helpers to align Jon packages inside extracted raws and score plans against known cuts.
-- Classical/ASR proposal stack (silence, energy, speech islands) feeding sparse Gemini listening.
-- End-to-end `scripts/track_show.py`: Whisper → Gemini Flash listen → optional refine / gap-fill / Pro escalate → tracking-plan JSON → **review gate** → optional etree package export.
-- Cross-platform Textual review TUI (`dat-review`): with no args, prompt for a continuous-FLAC dump directory (defaults to `data/raw/extracted` when present), list shows, run tracking for untracked FLACs, then review → package → optional IA upload; `w` / `--work-plans` lists existing `data/work` plans (calibration); or `dat-review <show-id>`; waveform overview/detail, cut edit, track/package metadata, playback, Accept-all / Save&approve; packaging refuses unapproved plans unless `--force-unreviewed`.
-- Hardening from calibration loops: endpoint restoration, refine windows, snaps, JSON/transport retries, near-zero merge fix, sparse gap-fill probes, temperature 0.0, segue guidance in the listen prompt.
-
-### In progress
-
-- Raising **boundary F1** and track-count agreement to the shipping gates (still failing on held-out Tier B and Tier A).
-- Making gap-fill reliable on hard under-segmented shows (e.g. some YMSB Tier B cases) without mid-song false inserts.
-- Reducing run-to-run variance on ambiguous shows even at temperature 0.0.
-- Near-miss placement polish (many cuts land within ~15–60 s of truth but miss the ±15 s gate).
-- Guarding Pro escalate so it cannot collapse a reasonable mid-cut lattice (seen on some Tier A runs).
-
-### Latest calibration snapshot (approximate)
-
-Tune on **train**, not holdout. Numbers move as plans are regenerated.
-
-**Baseline A** (frozen for the shipping-gates campaign — see [docs/baseline_a.md](docs/baseline_a.md)): Tier B train mean F1 **0.755**, min **0.533**, track \|Δ\|≤1 **100%**. Plans under `data/work/.baseline_a/`.
-
-| Set | mean F1 @ ±15 s | Notes |
-|-----|-----------------|--------|
-| Tier B train (best merged) | **0.804** | min **0.714**; track \|Δ\|≤1 **60%** (los over-seg). Escalate density gate + soft polish landed; fresh Gemini runs still flip lattices |
-| Tier B holdout (fresh) | **0.596** | Gate: mean ≥ **0.85**, min ≥ **0.70** — **FAIL** (ymsb ~0.31, jcb ~0.42) |
-| Tier A (3 shows) | ~0.34 | Gate: mean ≥ **0.80** — **FAIL**; Pro lattice guard + refine JSON soft-fail added |
-
-**Not shippable yet.** Shipping gates are held-out metrics; train progress does not unlock batching.
-
-### Roadmap / how we plan to improve
-
-1. **Train-first placement** — better refine/listen prompts and optional classical polish aimed at “next track start,” validated with multi-run corroboration (temperature 0.0 helps but does not eliminate flips).
-2. **Far-miss recovery** — keep gap-fill optional/guarded; corroborate sparse multi-probe behavior on remaining hard train shows before auto-triggering.
-3. **Pro escalate guardrails** — preserve well-spaced mid cuts when escalating long under-segmented shows.
-4. **Re-score Tier A + holdout** only after train gains stick; fix weak festival multi-artist alignment before using those nights as gates.
-5. **Batch Live Bluegrass `todo`** and Archive.org upload only after held-out gates pass.
-6. **Phase 2b / 5** — broader DAT corpus RAG / optional specialist models; installable config for other dumps (locked goal in PLAN.md).
-
-See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for locked decisions and detailed phases.
-
-## Layout
-
-| Path | Purpose |
-|------|---------|
-| `src/dat_tracker/` | Library code (catalog, proposals, calibration helpers, …) |
-| `scripts/` | Download, score, and build utilities |
-| `catalog/` | Show inventory and calibration manifests |
-| `data/` | Local media (gitignored): raw dumps, ground truth, work, output |
-| `docs/` | Extra notes |
-| `tests/` | Pytest suite |
-
-## Usage
-
-These steps assume you are comfortable opening a **terminal**: Terminal.app on macOS, PowerShell or Windows Terminal on Windows, or any shell on Linux. Commands below are meant to be typed (or pasted) there, one block at a time, from the project folder unless noted.
-
-**dat-tracker is still early.** The flow that works today is: install dependencies → put a continuous FLAC on disk → run `scripts/track_show.py` with a [Google AI Studio](https://aistudio.google.com/apikey) API key. Full dump batching and a one-click installer are not ready yet.
-
-### Prebuilt `dat-review` binaries
-
-GitHub Releases publish single-file operator binaries (e.g. `dat-review-linux-x86_64`) under [Releases](https://github.com/151henry151/dat-tracker/releases). Download one for your OS, make it executable on Unix (`chmod +x`), and keep **ffmpeg** / **ffprobe** on your `PATH`. Whisper model weights download on first track; configure a Gemini API key in the TUI or via `.env`. Windows and macOS assets are built by `.github/workflows/release-binaries.yml` when GitHub Actions is available for the account.
-
-### What you need on every OS
-
-| Requirement | Why |
-|-------------|-----|
-| **Python 3.11+** | Runs the tracker |
-| **ffmpeg** (includes **ffprobe** on normal installs) | Decode/cut audio, silence detect, durations |
-| **Git** (recommended) | Clone this repository |
-| **Gemini API key** | Sparse audio listening + companion text extract (free to create; see “Configure your Gemini API key” below) |
-| Disk space | Continuous FLACs and work files are large; plan for tens of GB if you pull calibration or a full dump |
-
-The Python package **`internetarchive`** (Archive.org’s official library / `ia` CLI) is installed automatically when you install this project with `pip`. You do **not** install it separately unless you want it system-wide for other work.
-
-### 1. Get the code
+**Linux / macOS:** make it executable once, then run it from a terminal:
 
 ```bash
-git clone https://github.com/151henry151/dat-tracker.git
-cd dat-tracker
+chmod +x dat-review-linux-x86_64   # or dat-review-macos-arm64
+./dat-review-linux-x86_64
 ```
 
-If you do not use Git, download the project zip from your host, unzip it, and `cd` into the resulting `dat-tracker` folder.
+**Windows:** double-click the `.exe`, or run it from PowerShell / Command Prompt in the folder where you saved it:
 
-### 2. Install system tools (pick your OS)
-
-#### Windows
-
-1. Install **Python 3.11+** from [python.org](https://www.python.org/downloads/windows/). In the installer, enable **“Add python.exe to PATH”**.
-2. Install **Git** from [git-scm.com](https://git-scm.com/download/win) if you do not have it.
-3. Install **ffmpeg** (provides `ffmpeg` and `ffprobe`) using one of:
-   - **winget** (Windows 10/11): `winget install --id Gyan.FFmpeg`
-   - **Chocolatey**: `choco install ffmpeg`
-   - Or download a build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) / [BtbN](https://github.com/BtbN/FFmpeg-Builds/releases) and add the `bin` folder to your user **PATH**.
-4. Open **PowerShell** or **Windows Terminal** and continue with the confirmation checks below (use `python`, not `python3`).
-
-#### macOS
-
-1. Install **Homebrew** from [brew.sh](https://brew.sh/) if needed.
-2. In Terminal:
-
-```bash
-brew install python git ffmpeg
+```powershell
+.\dat-review-windows-x86_64.exe
 ```
 
-Homebrew’s `ffmpeg` formula normally includes `ffprobe` on the same PATH. Then run the confirmation checks below (use `python3`).
+If Windows or macOS binaries are not on the latest release yet, use [Install from source](#install-from-source-developers) below, or check back on the Releases page.
 
-#### Linux
+### 2. Install ffmpeg (required)
 
-On Debian/Ubuntu (or a derivative), in a terminal:
+`dat-review` needs **ffmpeg** (and **ffprobe** / **ffplay**, which normally come with it) on your system `PATH`.
 
-```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git ffmpeg
-```
+| OS | Simple install |
+|----|----------------|
+| **Windows** | `winget install --id Gyan.FFmpeg` — or [Chocolatey](https://chocolatey.org/) `choco install ffmpeg` — or a build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) |
+| **macOS** | Install [Homebrew](https://brew.sh/), then `brew install ffmpeg` |
+| **Linux (Debian/Ubuntu)** | `sudo apt update && sudo apt install -y ffmpeg` |
 
-The `ffmpeg` package normally ships `ffprobe` as well. On other distributions, install the same four packages with your package manager (`python3`, `python3-venv` / venv support, `git`, `ffmpeg`). Then run the confirmation checks below (use `python3`).
-
-#### Confirm system tools
-
-Run these in the same terminal. Version numbers will differ; you mainly care that each command prints a version line and does **not** say “command not found” / “not recognized”.
-
-**Python** — on Windows use `python`; on macOS/Linux use `python3`:
-
-```bash
-python3 --version
-```
-
-Should return something like:
-
-```text
-Python 3.13.5
-```
-
-(Any **3.11** or newer is fine.)
-
-**ffmpeg:**
+Check that it works:
 
 ```bash
 ffmpeg -version
-```
-
-Should return something like (first line is enough; more configuration text usually follows):
-
-```text
-ffmpeg version 7.1.3 Copyright (c) 2000-2025 the FFmpeg developers
-```
-
-**ffprobe:**
-
-```bash
 ffprobe -version
 ```
 
-Should return something like:
+You should see a version line, not “command not found”.
 
-```text
-ffprobe version 7.1.3 Copyright (c) 2007-2025 the FFmpeg developers
-```
+### 3. Get a Gemini API key (free to create)
 
-### 3. Create a Python virtual environment and install dat-tracker
+Tracking listens to short audio clips with Google’s **Gemini** API.
 
-Still inside the `dat-tracker` folder.
+1. Open **[Google AI Studio → API keys](https://aistudio.google.com/apikey)** and sign in with a Google account.
+2. Create an API key and copy it (treat it like a password).
 
-**macOS / Linux** (bash or zsh):
+On first launch, `dat-review` can ask you to paste the key and save it for next time. You can also put it in a `.env` file next to the binary or in the project folder (see [Gemini API key details](#gemini-api-key-details)).
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-pip install -e ".[asr]"
-```
+A Free Tier key is enough to try the app. Long shows use several API requests; free daily limits are low — for many shows per day you may need billing in AI Studio. [Billing](https://ai.google.dev/gemini-api/docs/billing) · [pricing](https://ai.google.dev/gemini-api/docs/pricing).
 
-**Windows** (PowerShell):
+### 4. Run it on your FLACs
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -e ".[asr]"
-```
+1. Start `dat-review` (see step 1).
+2. If asked, enter your **tracker name** (how you want to be credited) and paste your **Gemini API key**.
+3. Browse to the folder that contains your continuous show FLACs (not a zip — an unzipped folder of `.flac` files).
+4. Pick a show from the list:
+   - **Enter** on one show → track it (if needed) → open the review screen.
+   - **`a`** → **Track all** untracked shows (can take a long time and use API quota).
+5. On the review screen, check cuts and titles. When it looks good:
+   - **`a`** Accept-all, or **`s`** Save & approve.
+6. The app continues into **packaging**, then asks whether to **upload to Archive.org** (you can skip and keep the local package).
 
-If PowerShell blocks script activation, run once (as yourself, not as a global policy lecture):  
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`  
-Or use **Command Prompt** and `.venv\Scripts\activate.bat` instead.
+Finished packages land under `data/out/<show-id>/` when you run from a project checkout; with a standalone binary, paths follow the working directory you launched from (and any project root you pass with `--root`).
 
-What that install does:
+**Tips**
 
-- `-e` installs this repo in “editable” mode so `import dat_tracker` works.
-- `.[asr]` pulls in **faster-whisper** for local speech islands (recommended for tracking).
-- Core deps including **`internetarchive`**, **`google-genai`**, and **`jsonschema`** come in automatically.
+- First track of a long FLAC can take **many minutes** on CPU (speech transcription). The screen shows live progress and elapsed time so it does not look hung.
+- You still need **disk space** for work files and exported tracks.
+- Press **`q`** in review to return to the show list (you do not have to quit the whole app).
 
-Optional: `pip install -e ".[dev]"` if you also want **pytest** (see Development below). For the review TUI and Accept-all packaging path, install **`[review]`**. Playback uses **`ffplay`** from the ffmpeg package (already required); PortAudio/`sounddevice` is only a fallback if `ffplay` is missing:
+### Common keyboard shortcuts (review screen)
 
-```bash
-pip install -e ".[asr,review]"
-```
+| Key | Action |
+|-----|--------|
+| Click yellow cut / `[` `]` | Select previous / next cut |
+| `←` `→` | Nudge cut (Shift = larger step) |
+| Space | Play / pause from the playhead |
+| `l` | Loop around the selected cut |
+| `a` | Accept-all |
+| `s` | Save & approve |
+| `r` | Reset cuts/titles to the automatic plan (keeps package fields) |
+| `q` | Back to show list / quit as prompted |
 
-You can combine extras: `pip install -e ".[asr,dev,review]"`.
+---
 
-After install, with the venv still **activated**, Archive.org’s CLI should be available:
+## What you get
 
-```bash
-ia --help
-```
+For each show the tool aims to produce:
 
-Should return something like:
+- Separate **FLAC tracks** with sensible filenames  
+- A **show.txt**-style info file (artist, date, venue, source/transfer, setlist)  
+- A **fingerprint** file and tags on the audio  
+- Optional **Archive.org** upload after you confirm  
 
-```text
-usage: ia [-h] [-v] [-c FILE] [-l] [-d] [-i] [-H HOST]
-          [--user-agent-suffix STRING]
-          {command} ...
+Conventions match careful live tracking: banter/tuning/intros as their own tracks, segues marked with `>`, honest transfer/tracker credits.
 
-A command line interface to Archive.org.
-```
+---
 
-(More options and subcommands such as `configure`, `download`, and `upload` follow. If you get “command not found”, the venv is probably not activated.)
+## Gemini API key details
 
-### 4. Configure your Gemini API key
+`dat-review` looks for `GEMINI_API_KEY` in the environment or in a `.env` file.
 
-Tracking and review hydrate call Google’s **Gemini API**. You do **not** need to open the full Google Cloud Console or set up billing just to create a key and try the app.
-
-#### Get a key (about two minutes)
-
-1. Sign in with a normal Google account at **[Google AI Studio → API keys](https://aistudio.google.com/apikey)**.
-2. Accept the Gemini API terms if prompted. New users usually get a default project and can click **Create API key**.
-3. Copy the key. Keep it private (treat it like a password).
-
-You do **not** need a separate “Google Cloud project tour,” Vertex AI setup, or billing account for that free-tier key. AI Studio attaches a lightweight project for you.
-
-#### Put the key in `.env`
-
-On first `dat-review` launch, if no key is found, the TUI asks you to paste one (saved to this project's gitignored `.env`). You can skip, but tracking will not work until a key is set.
-
-Or set it manually:
-
-**macOS / Linux:**
-
-```bash
-cp .env.example .env
-```
-
-**Windows (PowerShell):**
-
-```powershell
-Copy-Item .env.example .env
-```
-
-Open `.env` in a text editor and set:
+Example `.env`:
 
 ```text
 GEMINI_API_KEY=your_key_here
 DAT_TRACKER_LLM_MODEL=gemini-3.6-flash
 ```
 
-Never commit `.env` (it is gitignored). You can also export `GEMINI_API_KEY` in your shell instead of using a file.
-
-#### Free tier vs paying Google
-
 | Question | Short answer |
 |----------|----------------|
-| Can I try without a credit card? | **Yes.** New Gemini API projects start on the **Free Tier** ([billing overview](https://ai.google.dev/gemini-api/docs/billing)). |
-| Are tokens free on Free Tier? | **Yes** for models that still list a Free Tier on the [pricing page](https://ai.google.dev/gemini-api/docs/pricing) (Flash-class models we default to usually do). |
-| What’s the catch? | **Low rate limits** (requests per minute / per day). Google no longer publishes a fixed public table; check **[AI Studio → Rate limits](https://aistudio.google.com/)** for *your* project. Community measurements for Flash often land around a handful of RPM and on the order of **~20 requests/day**—enough to poke at the app, often **not** enough to finish a full sparse-listen track of a long show in one day. |
-| Do I need Cloud Console billing to try? | **No** for basic text + Flash listening on Free Tier. |
-| When should I enable billing? | When you hit `429` / quota errors, want to track several shows per day, or want higher limits. Paid setup is done from AI Studio (**Set up billing** on the project). Newer accounts may be asked to **prepay a small credit balance** (Google documents a **~$5 minimum** for Prepay). See [billing](https://ai.google.dev/gemini-api/docs/billing) and [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits). |
-| What about “search the web for missing venue”? | **Google Search grounding is not available on Free Tier** for current Gemini 3.x Flash models ([pricing](https://ai.google.dev/gemini-api/docs/pricing)). Companion extract still works from the `.txt` alone; web research for blank venue/city/state needs a **paid** project. Without billing, that research step is skipped/soft-fails and heuristic/catalog fill remains. |
+| Credit card required to try? | **No** — Free Tier works for a first try |
+| Catch on Free Tier? | **Low rate limits** (easy to hit on a long show) |
+| Web search for missing venue? | Needs a **paid** Gemini project; without it, companions/heuristic fill still run |
 
-**Practical expectation:** a free key is easy and is enough to install, configure, and run a little. Serious daily tracking of many DAT shows usually means linking billing (and optionally setting a spend cap in AI Studio) so you are not blocked mid-show by daily quota.
+Never commit a real `.env` (it is gitignored in this repo).
 
-### 5. Track one continuous show
+---
 
-Put a continuous FLAC somewhere reachable (for calibration shows the usual path is `data/calibration/<show-id>/synthetic_continuous.flac`). With the venv **activated**:
+## Optional: Archive.org login
+
+After you approve a show, packaging can offer upload. Log in inside the TUI (same idea as `ia configure`), or configure the Archive.org CLI yourself if you installed from source. See [`docs/upload-checklist.md`](docs/upload-checklist.md). The app will not silently upload.
+
+---
+
+## Install from source (developers)
+
+Use this if you are changing the code, or if a binary for your OS is not available yet.
+
+### Prerequisites
+
+- **Python 3.11+**
+- **ffmpeg** / **ffprobe** / **ffplay** on `PATH`
+- **Git** (recommended)
+- **Gemini API key** (as above)
+
+### Clone and install
+
+```bash
+git clone https://github.com/151henry151/dat-tracker.git
+cd dat-tracker
+```
+
+**macOS / Linux:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+pip install -e ".[asr,review]"
+cp .env.example .env   # then set GEMINI_API_KEY
+dat-review
+```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -U pip
+pip install -e ".[asr,review]"
+Copy-Item .env.example .env
+dat-review
+```
+
+Extras: `.[asr]` = Whisper speech islands; `.[review]` = Textual TUI; `.[dev]` = pytest. Combine as needed: `pip install -e ".[asr,review,dev]"`.
+
+### Useful `dat-review` flags
+
+```bash
+dat-review                          # dump folder → list → track/review
+dat-review --dump-root /path/to/flacs
+dat-review --work-plans             # existing data/work plans only
+dat-review <show-id>                # jump to one show
+dat-review <show-id> --accept-all   # approve without opening the TUI
+dat-review --setup-defaults         # set tracker name defaults
+```
+
+### Low-level: `scripts/track_show.py`
+
+For scripting / calibration (venv activated):
 
 ```bash
 python scripts/track_show.py \
@@ -351,109 +207,59 @@ python scripts/track_show.py \
   --refine
 ```
 
-On Windows PowerShell, either use the same line breaks with `` ` `` continuations or write it as one long line.
-
-Useful flags:
-
 | Flag | Meaning |
 |------|---------|
-| `--source PATH` | Continuous FLAC (default under `data/calibration/<show-id>/`) |
-| `--skip-package` | Write the tracking plan only (no track FLAC / txt / ffp export) |
-| `--refine` | Second Gemini listen pass (more accurate, more API use) |
-| `--gap-fill` | Optional INSERT listen on overlong segments (off by default; use carefully) |
-| `--gap-fill-max-seg-sec N` | Segment length that triggers gap-fill probes (default 480) |
-| `--reuse-calibration-whisper` | Reuse a cached Whisper JSON under `data/calibration/` when present |
-| `--tracker NAME` | Credit string written into show.txt (default `dat-tracker`) |
-| `--accept-all` | Headless review Approve-all before packaging (skip the TUI) |
-| `--force-unreviewed` | Package without approval (escape hatch only) |
+| `--source PATH` | Continuous FLAC |
+| `--skip-package` | Write tracking plan only |
+| `--refine` | Second Gemini listen pass |
+| `--gap-fill` | INSERT listen on overlong segments (use carefully) |
+| `--accept-all` / `--force-unreviewed` | Packaging review shortcuts |
 
-Outputs land under `data/work/<show-id>/` (plan JSON, listen clips, optional `package/`).
+Outputs: `data/work/<show-id>/`.
 
-### 5b. Review a plan (required before packaging)
+### Development / tests
 
 ```bash
-# Operator path: browse to the FLAC dump directory, then pick a show
-# (untracked FLACs are tracked automatically before review; a = Track all)
-dat-review
-
-# Skip the prompt when you already know the dump path
-dat-review --dump-root data/raw/extracted
-
-# Calibration / existing plans only (old picker behavior)
-dat-review --work-plans
-# (same as pressing w on the dump-directory screen)
-
-# Optional anytime: open tracker-name defaults (also shown in-session on first run)
-dat-review --setup-defaults
-
-# Jump straight to one already-tracked show
-dat-review sbb2001-04-27.flac16
-
-# Headless approve when the auto plan looks good
-dat-review sbb2001-04-27.flac16 --accept-all
-
-# Power-user path still works
-dat-review --plan data/work/<show-id>/tracking_plan_gemini.json --source path/to.flac
-```
-
-On open, `dat-review` hydrates blank track titles/types from Gemini listen notes (when the model left `tracks` empty and only named songs in notes), then runs **one** Gemini companion extract over calibration/ground_truth info text (package fields + setlist; Google Search for missing venue/city/state when artist+date are known; heuristic parse is offline fallback only). That extract reconciles surplus cuts to setlist length, fills blank song titles, and seeds empty package fields, then catalog/`show_id` date. Blank banter/intro/tuning/encore tracks get Jon-style titles (`Banter`, `Intro`, …). Seeded package fields then get a **spelling polish** (known fixes such as `Douglass` → `Douglas`, plus optional Gemini text correction when `GEMINI_API_KEY` is set). Your tracker name comes from saved defaults (`~/.config/dat-tracker/review_defaults.json`, or `catalog/operator_defaults.json`, or `$DAT_TRACKER_DEFAULTS`). `set_label` soft-defaults to `One Set`; `transfer` / `transferer` stay per-show (edit in the review form). CLI `--artist` / `--date` / `--venue` / etc. override those seeds. Batch-check work shows with `uv run python scripts/verify_work_package_seed.py`.
-
-Tracking also writes `data/work/<show-id>/tracking_plan_as_delivered.json` (the LLM lattice before review edits). In the TUI, **Reset to LLM** / `r` restores cuts and track labels from that snapshot and keeps your package metadata.
-
-Waveforms: overview is a multi-row full-show silhouette (yellow cut markers, cyan band = detail window); detail zooms ~±20s around the selected cut with a time ruler.
-
-Keys in the TUI: click a yellow cut on the waveform to select it, then `←`/`→` to nudge by 0.1s (`Shift`±1s, `Ctrl`±0.01s); click elsewhere on the waveform to place the playhead; click a track in the list to select its cut and jump the playhead to that track’s start; `[`/`]` prev/next cut; `a` Accept-all, `s` Save&approve, `r` Reset to LLM, `q` Quit; Space play/pause from the playhead; `l` loop around the selected cut. Insert/delete cut remain on `i`/`d` (hidden from the footer).
-
-After **Accept-all** or **Save & approve**, the same TUI continues into packaging (`data/out/<show_id>/` tagged FLACs + show.txt + ffp), then an Archive.org upload confirm screen (Log in / Upload / Skip / Quit). Login uses your archive.org email and password inside the TUI (same result as `ia configure`). See [`docs/upload-checklist.md`](docs/upload-checklist.md).
-### 6. Optional: download from Archive.org
-
-With the venv activated, `ia` comes from the **`internetarchive`** dependency:
-
-```bash
-ia configure    # once: archive.org credentials for downloads / uploads
-ia download IDENTIFIER --no-directories -C original
-```
-
-Project-specific download helpers also live under `scripts/` (see [PLAN.md](PLAN.md) and `docs/`).
-
-## Development
-
-For contributors iterating on the code: same system prerequisites as **Usage** (Python 3.11+, ffmpeg/ffprobe, Git), then a venv with **dev** extras and tests.
-
-Open a terminal, `cd` into the repo, and run the block for your OS.
-
-**macOS / Linux:**
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-pip install -e ".[asr,dev]"
-cp .env.example .env   # then set GEMINI_API_KEY
+pip install -e ".[asr,review,dev]"
 pytest
 ```
 
-**Windows (PowerShell):**
+Maintainers and agents: follow **[PLAN.md](PLAN.md)** and **[AGENTS.md](AGENTS.md)**. Release binaries are built with PyInstaller (see `packaging/` and `.github/workflows/release-binaries.yml`).
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -U pip
-pip install -e ".[asr,dev]"
-Copy-Item .env.example .env
-pytest
-```
+### Repository layout
 
-`pytest` runs the automated test suite. A successful run ends with something like:
+| Path | Purpose |
+|------|---------|
+| `src/dat_tracker/` | Library and TUI |
+| `scripts/` | Download, score, track utilities |
+| `catalog/` | Show inventory / calibration manifests |
+| `data/` | Local media (gitignored): raw, work, out |
+| `docs/` | Extra notes (upload checklist, baselines, …) |
+| `tests/` | Pytest suite |
+| `packaging/` | PyInstaller build for release binaries |
 
-```text
-.....                                                                    [100%]
-XX passed in 0.50s
-```
+---
 
-(Exact counts change as tests are added.) Tracking against real audio still needs a valid `.env` and ffmpeg on `PATH`.
+## Background (why this exists)
 
-Agents and maintainers working in this repo should follow **[PLAN.md](PLAN.md)** and **[AGENTS.md](AGENTS.md)**.
+Live DAT → FLAC transfers often arrive as **one long file with no track markers**. Splitting them carefully by hand takes hours per show. Silence detectors and energy peak-pickers help a little on studio albums, but live soundboards keep applause and room tone in the mix — so automatic helpers usually leave you dragging markers in a waveform editor anyway.
+
+**dat-tracker** keeps cheap local proposals (silence, energy, speech islands) as navigation aids, then has an **audio-capable LLM** (Gemini) listen to **short clips** around candidates and produce a structured tracking plan. Packaging always goes through the **`dat-review`** gate (Accept-all or edit-then-approve). Calibration against already-tracked Archive.org shows is how we measure progress; Live Bluegrass is the first proving ground, not the only intended use.
+
+Deeper design notes, shipping gates, and phase plan: **[PLAN.md](PLAN.md)**. History of changes: **[CHANGELOG.md](CHANGELOG.md)**.
+
+### Calibration snapshot (approximate)
+
+Not shippable for dump-wide batch upload yet. Tune on train, gate on holdout.
+
+**Baseline A** ([docs/baseline_a.md](docs/baseline_a.md)): Tier B train mean F1 **0.755**, min **0.533**, track \|Δ\|≤1 **100%**.
+
+| Set | mean F1 @ ±15 s | Notes |
+|-----|-----------------|--------|
+| Tier B holdout (fresh) | ~0.60 | Gate mean ≥ **0.85**, min ≥ **0.70** — fail |
+| Tier A (sample) | ~0.34 | Gate mean ≥ **0.80** — fail |
+
+---
 
 ## License
 
