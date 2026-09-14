@@ -23,10 +23,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from dat_tracker.review_discover import prefer_plan_path  # noqa: E402
 from dat_tracker.review_hydrate import (  # noqa: E402
     find_companion_show_txt,
+    hydrate_plan_from_companions,
     hydrate_plan_from_notes,
-    hydrate_titles_from_published_setlist,
-    reconcile_track_count_to_published_setlist,
-    seed_package_metadata,
 )
 from dat_tracker.review_package_polish import polish_package_metadata  # noqa: E402
 from dat_tracker.review_plan import migrate_tracking_plan  # noqa: E402
@@ -84,12 +82,10 @@ def _seed_show(
     else:
         plan = _stub_plan(show_id)
     plan = hydrate_plan_from_notes(plan)
-    plan = reconcile_track_count_to_published_setlist(plan, project_root=ROOT)
-    plan = hydrate_titles_from_published_setlist(plan, project_root=ROOT)
-    plan = seed_package_metadata(
+    plan = hydrate_plan_from_companions(
         plan,
         project_root=ROOT,
-        use_llm_extract=True,
+        use_llm=True,
         allow_web_research=allow_web_research,
     )
     return polish_package_metadata(plan, project_root=ROOT, use_llm=True)

@@ -169,6 +169,200 @@ def test_seed_package_metadata_fills_from_llm_extract(tmp_path: Path):
     validate_tracking_plan(out)
 
 
+def test_extract_returns_setlist_from_llm(tmp_path: Path):
+    from dat_tracker.review_package_extract import extract_package_fields_from_companions
+
+    (tmp_path / "info.txt").write_text(
+        "Jazz Mandolin Project\n"
+        "2002-11-15\n"
+        "Songs tonight:\n"
+        "- Mariachi Song\n"
+        "- Open Sesame into Dimensions\n"
+        "- Autumn Leaves\n"
+    )
+    meta: dict = {}
+
+    def fake_llm(context: dict) -> dict:
+        return {
+            "artist": "Jazz Mandolin Project",
+            "date": "2002-11-15",
+            "setlist": [
+                "Mariachi Song",
+                "Open Sesame > Dimensions",
+                "Autumn Leaves",
+            ],
+        }
+
+    fields = extract_package_fields_from_companions(
+        tmp_path,
+        use_llm=True,
+        llm_extract_fn=fake_llm,
+        allow_web_research=False,
+        result_meta=meta,
+    )
+    assert fields["artist"] == "Jazz Mandolin Project"
+    assert "setlist" not in fields
+    assert meta["setlist"] == [
+        "Mariachi Song",
+        "Open Sesame > Dimensions",
+        "Autumn Leaves",
+    ]
+
+
+def test_hydrate_titles_uses_llm_setlist_for_odd_layout(tmp_path: Path):
+    """Bullet setlists that regex misses still hydrate via LLM extract."""
+    from dat_tracker.review_hydrate import hydrate_titles_from_published_setlist
+    from dat_tracker.review_package_extract import companion_extract_for_show
+
+    show_id = "jmp2002-11-15"
+    gt = tmp_path / "data" / "ground_truth" / show_id
+    gt.mkdir(parents=True)
+    (gt / f"{show_id}.txt").write_text(
+        "Jazz Mandolin Project\n"
+        "November 15, 2002\n"
+        "Winston's\n"
+        "San Diego, CA\n"
+        "\n"
+        "Songs:\n"
+        "* Mariachi Song\n"
+        "* Open Sesame into Dimensions\n"
+        "* Autumn Leaves\n"
+    )
+
+    def fake_llm(context: dict) -> dict:
+        return {
+            "artist": "Jazz Mandolin Project",
+            "date": "2002-11-15",
+            "venue": "Winston's",
+            "city": "San Diego",
+            "state": "CA",
+            "setlist": [
+                "Mariachi Song",
+                "Open Sesame > Dimensions",
+                "Autumn Leaves",
+            ],
+        }
+
+    bundle = companion_extract_for_show(
+        show_id,
+        project_root=tmp_path,
+        use_llm=True,
+        allow_web_research=False,
+        llm_extract_fn=fake_llm,
+    )
+    assert bundle["setlist"][0] == "Mariachi Song"
+
+    plan = migrate_tracking_plan(
+        {
+            "schema_version": "1.0.0",
+            "show_id": show_id,
+            "source_path": "x.flac",
+            "duration_sec": 300.0,
+            "cuts_sec": [0.0, 100.0, 200.0, 300.0],
+            "tracks": [
+                {
+                    "index": i,
+                    "start_sec": float((i - 1) * 100),
+                    "end_sec": float(i * 100),
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                }
+                for i in range(1, 4)
+            ],
+            "overall_confidence": 0.5,
+            "needs_review": False,
+            "notes": [],
+        }
+    )
+    # Heuristic alone yields no titles for bullet lists.
+    from dat_tracker.review_hydrate import parse_published_setlist, find_companion_show_txt
+
+    txt = find_companion_show_txt(show_id, project_root=tmp_path)
+    assert txt is not None
+    assert parse_published_setlist(txt) == []
+
+    out = hydrate_titles_from_published_setlist(
+        plan, project_root=tmp_path, titles=bundle["setlist"]
+    )
+    assert [t["title"] for t in out["tracks"]] == [
+        "Mariachi Song",
+        "Open Sesame > Dimensions",
+        "Autumn Leaves",
+    ]
+
+
+def test_prepare_plan_shares_one_companion_extract(tmp_path: Path, monkeypatch):
+    from dat_tracker import review_cli
+    from dat_tracker.review_cli import prepare_plan
+
+    show_id = "jmp2002-11-15"
+    gt = tmp_path / "data" / "ground_truth" / show_id
+    gt.mkdir(parents=True)
+    (gt / f"{show_id}.txt").write_text(
+        "Jazz Mandolin Project\n2002-11-15\nWinston's\nSan Diego, CA\n\n"
+        "One Set:\n1. Mariachi Song\n2. Open Sesame\n"
+    )
+    calls: list[str] = []
+
+    def fake_bundle(sid, **kwargs):
+        calls.append(sid)
+        return {
+            "artist": "Jazz Mandolin Project",
+            "date": "2002-11-15",
+            "venue": "Winston's",
+            "city": "San Diego",
+            "state": "CA",
+            "source": "AUD > DAT",
+            "transfer": "DAT > FLAC",
+            "setlist": ["Mariachi Song", "Open Sesame"],
+            "_used_llm": True,
+            "_used_research": False,
+        }
+
+    monkeypatch.setattr(
+        "dat_tracker.review_package_extract.companion_extract_for_show",
+        fake_bundle,
+    )
+    monkeypatch.setattr(
+        review_cli,
+        "polish_package_metadata",
+        lambda plan, **k: plan,
+    )
+
+    raw = {
+        "schema_version": "1.0.0",
+        "show_id": show_id,
+        "source_path": "x.flac",
+        "duration_sec": 200.0,
+        "cuts_sec": [0.0, 100.0, 200.0],
+        "tracks": [
+            {
+                "index": i,
+                "start_sec": float((i - 1) * 100),
+                "end_sec": float(i * 100),
+                "track_type": "song",
+                "title": None,
+                "segue_into_next": False,
+                "confidence": 0.5,
+                "evidence": [],
+            }
+            for i in range(1, 3)
+        ],
+        "overall_confidence": 0.5,
+        "needs_review": False,
+        "notes": [],
+    }
+    out = prepare_plan(raw, project_root=tmp_path)
+    assert calls == [show_id]
+    assert out["package"]["venue"] == "Winston's"
+    assert out["tracks"][0]["title"] == "Mariachi Song"
+    assert out["tracks"][1]["title"] == "Open Sesame"
+
+
+
 def test_llm_success_skips_heuristic_soft_fill(tmp_path: Path):
     """When the LLM returns a partial result, do not overwrite with regex parses."""
     from dat_tracker.review_package_extract import extract_package_fields_from_companions

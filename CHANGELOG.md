@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Prefer Gemini text extraction for companion show ``.txt`` package fields, with optional Google Search research to fill missing venue/city/state when artist and date are known.
+- Extract published setlists via the same Gemini companion pass (shared with package seed) so odd/bullet layouts still hydrate track titles.
 - Add ``scripts/verify_work_package_seed.py`` to batch-check ``data/work`` shows for blank package fields via the LLM seed path.
 - Resolve companion info and catalog rows from ``data/ground_truth`` and ``catalog/shows.json`` (not only calibration / tier-B).
 - Add offline ``tests/test_work_package_coverage.py`` so every work show with a companion seeds non-blank package fields via the heuristic fallback.

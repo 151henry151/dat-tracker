@@ -567,22 +567,26 @@ def hydrate_titles_from_published_setlist(
     *,
     project_root: Path | None = None,
     calibration_dir: Path | None = None,
+    titles: list[str] | None = None,
 ) -> dict[str, Any]:
     """Fill blank *song* titles from the published calibration setlist.
 
     Assigns titles in order to blank ``song`` (and long ``unknown``) tracks,
     skipping banter/tuning/intro/encore. Does not overwrite existing titles.
+    Prefer passing ``titles`` from ``companion_extract_for_show`` so the LLM
+    setlist is used; otherwise fall back to the heuristic parser.
     """
     plan = migrate_tracking_plan(plan)
     root = project_root or Path.cwd()
-    txt = find_companion_show_txt(
-        str(plan.get("show_id") or ""),
-        project_root=root,
-        calibration_dir=calibration_dir,
-    )
-    if txt is None:
-        return plan
-    titles = parse_published_setlist(txt)
+    if titles is None:
+        txt = find_companion_show_txt(
+            str(plan.get("show_id") or ""),
+            project_root=root,
+            calibration_dir=calibration_dir,
+        )
+        if txt is None:
+            return plan
+        titles = parse_published_setlist(txt)
     if not titles:
         return plan
 
@@ -641,6 +645,7 @@ def reconcile_track_count_to_published_setlist(
     *,
     project_root: Path | None = None,
     calibration_dir: Path | None = None,
+    titles: list[str] | None = None,
 ) -> dict[str, Any]:
     """When the plan has more tracks than the published setlist, merge extras.
 
@@ -652,14 +657,15 @@ def reconcile_track_count_to_published_setlist(
 
     plan = migrate_tracking_plan(plan)
     root = project_root or Path.cwd()
-    txt = find_companion_show_txt(
-        str(plan.get("show_id") or ""),
-        project_root=root,
-        calibration_dir=calibration_dir,
-    )
-    if txt is None:
-        return plan
-    titles = parse_published_setlist(txt)
+    if titles is None:
+        txt = find_companion_show_txt(
+            str(plan.get("show_id") or ""),
+            project_root=root,
+            calibration_dir=calibration_dir,
+        )
+        if txt is None:
+            return plan
+        titles = parse_published_setlist(txt)
     if not titles:
         return plan
 
@@ -755,6 +761,63 @@ def find_published_show_txt(calibration_dir: Path) -> Path | None:
     return candidates[0]
 
 
+def hydrate_plan_from_companions(
+    plan: dict[str, Any],
+    *,
+    project_root: Path | None = None,
+    calibration_dir: Path | None = None,
+    use_llm: bool = True,
+    allow_web_research: bool = True,
+    llm_extract_fn: Any | None = None,
+    llm_research_fn: Any | None = None,
+    artist: str | None = None,
+    date: str | None = None,
+    tracker: str | None = None,
+    venue: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
+) -> dict[str, Any]:
+    """Reconcile/hydrate setlist + seed package from one companion extract."""
+    from dat_tracker.review_package_extract import (
+        _EXTRACT_NOTE,
+        companion_extract_for_show,
+    )
+
+    plan = migrate_tracking_plan(plan)
+    root = project_root or Path.cwd()
+    notes_list = [str(n) for n in (plan.get("notes") or [])]
+    already = _EXTRACT_NOTE in notes_list
+    want_llm = bool(use_llm) and not already
+    bundle = companion_extract_for_show(
+        str(plan.get("show_id") or ""),
+        project_root=root,
+        calibration_dir=calibration_dir,
+        use_llm=want_llm,
+        allow_web_research=bool(allow_web_research) and want_llm,
+        llm_extract_fn=llm_extract_fn,
+        llm_research_fn=llm_research_fn,
+    )
+    titles = list(bundle.get("setlist") or []) or None
+    plan = reconcile_track_count_to_published_setlist(
+        plan, project_root=root, calibration_dir=calibration_dir, titles=titles
+    )
+    plan = hydrate_titles_from_published_setlist(
+        plan, project_root=root, calibration_dir=calibration_dir, titles=titles
+    )
+    return seed_package_metadata(
+        plan,
+        artist=artist,
+        date=date,
+        tracker=tracker,
+        venue=venue,
+        city=city,
+        state=state,
+        project_root=root,
+        calibration_dir=calibration_dir,
+        companion_fields=bundle,
+    )
+
+
 def seed_package_metadata(
     plan: dict[str, Any],
     *,
@@ -772,12 +835,17 @@ def seed_package_metadata(
     allow_web_research: bool = True,
     llm_extract_fn: Any | None = None,
     llm_research_fn: Any | None = None,
+    companion_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Fill empty package fields from CLI, companions (LLM), catalog, and show_id."""
+    """Fill empty package fields from CLI, companions (LLM), catalog, and show_id.
+
+    Pass ``companion_fields`` from ``companion_extract_for_show`` to reuse a
+    single LLM extract (package + setlist) without a second API call.
+    """
     from dat_tracker.review_package_extract import (
         _EXTRACT_NOTE,
         _RESEARCH_NOTE,
-        extract_package_fields_from_companions,
+        companion_extract_for_show,
     )
 
     plan = migrate_tracking_plan(plan)
@@ -785,41 +853,39 @@ def seed_package_metadata(
     root = project_root or Path.cwd()
     catalog = lookup_catalog_show(str(plan.get("show_id") or ""), project_root=root)
 
-    published: dict[str, Any] = {}
-    ran_llm_extract = False
-    ran_web_research = False
-    show_id = str(plan.get("show_id") or "")
-    companion_dirs: list[Path] = []
-    if calibration_dir is not None and Path(calibration_dir).is_dir():
-        companion_dirs.append(Path(calibration_dir))
-    for directory in resolve_companion_dirs(show_id, project_root=root):
-        if directory not in companion_dirs:
-            companion_dirs.append(directory)
-
     notes_list = [str(n) for n in (plan.get("notes") or [])]
     already_extracted = _EXTRACT_NOTE in notes_list
-    want_llm = bool(use_llm_extract) and not already_extracted
-    for directory in companion_dirs:
-        meta: dict[str, Any] = {}
-        extracted = extract_package_fields_from_companions(
-            directory,
+    ran_llm_extract = False
+    ran_web_research = False
+
+    if companion_fields is not None:
+        published = {
+            k: v
+            for k, v in companion_fields.items()
+            if not str(k).startswith("_") and k != "setlist"
+        }
+        ran_llm_extract = bool(companion_fields.get("_used_llm"))
+        ran_web_research = bool(companion_fields.get("_used_research"))
+    else:
+        want_llm = bool(use_llm_extract) and not already_extracted
+        bundle = companion_extract_for_show(
+            str(plan.get("show_id") or ""),
+            project_root=root,
+            calibration_dir=calibration_dir,
             use_llm=want_llm,
             allow_web_research=bool(allow_web_research) and want_llm,
-            project_root=root,
             llm_extract_fn=llm_extract_fn,
             llm_research_fn=llm_research_fn,
-            result_meta=meta,
         )
-        if meta.get("used_llm"):
-            ran_llm_extract = True
-            # Only one Gemini extract (+ optional research) across companion dirs.
-            want_llm = False
-        if meta.get("used_research"):
-            ran_web_research = True
-        for key, value in extracted.items():
-            if key not in published or published.get(key) in (None, ""):
-                published[key] = value
+        published = {
+            k: v
+            for k, v in bundle.items()
+            if not str(k).startswith("_") and k != "setlist"
+        }
+        ran_llm_extract = bool(bundle.get("_used_llm"))
+        ran_web_research = bool(bundle.get("_used_research"))
 
+    show_id = str(plan.get("show_id") or "")
     defaults = merge_builtin_fallbacks(load_operator_defaults(project_root=root))
 
     def _unset(key: str, cur: Any) -> bool:

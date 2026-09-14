@@ -42,10 +42,8 @@ from dat_tracker.review_baseline import (
 )
 from dat_tracker.review_plan import approve_plan, migrate_tracking_plan
 from dat_tracker.review_hydrate import (
+    hydrate_plan_from_companions,
     hydrate_plan_from_notes,
-    hydrate_titles_from_published_setlist,
-    reconcile_track_count_to_published_setlist,
-    seed_package_metadata,
 )
 from dat_tracker.review_package_polish import polish_package_metadata
 from dat_tracker.tui_review.widgets.package_form import (
@@ -165,13 +163,9 @@ class ReviewScreen(Screen[int]):
         ensure_as_delivered_snapshot(self.plan_path, self.plan)
         if rehydrate:
             self.plan = hydrate_plan_from_notes(self.plan)
-            self.plan = reconcile_track_count_to_published_setlist(
+            self.plan = hydrate_plan_from_companions(
                 self.plan, project_root=_REPO_ROOT
             )
-            self.plan = hydrate_titles_from_published_setlist(
-                self.plan, project_root=_REPO_ROOT
-            )
-            self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
             # Known spelling fixes always; Gemini text polish when API key present.
             self.plan = polish_package_metadata(
                 self.plan, project_root=_REPO_ROOT, use_llm=True
@@ -734,13 +728,7 @@ class ReviewScreen(Screen[int]):
             self.plan, delivered, keep_package=True
         )
         self.plan = hydrate_plan_from_notes(self.plan)
-        self.plan = reconcile_track_count_to_published_setlist(
-            self.plan, project_root=_REPO_ROOT
-        )
-        self.plan = hydrate_titles_from_published_setlist(
-            self.plan, project_root=_REPO_ROOT
-        )
-        self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
+        self.plan = hydrate_plan_from_companions(self.plan, project_root=_REPO_ROOT)
         self.plan = polish_package_metadata(
             self.plan, project_root=_REPO_ROOT, use_llm=True
         )

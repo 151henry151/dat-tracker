@@ -196,7 +196,8 @@ def _companion_extract_prompt(context: dict[str, Any]) -> str:
         "Given companion info text file(s) and nearby filenames, interpret the "
         "messy human text and return JSON with any of these keys you can fill:\n"
         "  artist, date (YYYY-MM-DD), venue, city, state (US 2-letter when possible),\n"
-        "  source, transfer, transferer, set_label, notes.\n"
+        "  source, transfer, transferer, set_label, notes,\n"
+        "  setlist (array of song titles in performance order).\n"
         "Field meanings (important):\n"
         "- source = recording chain to the master (Jon “Source:” line), e.g. "
         "“SBD > DAT” or “SBD > Sony PCM-M1”.\n"
@@ -205,6 +206,10 @@ def _companion_extract_prompt(context: dict[str, Any]) -> str:
         "“DAT > Sony PCM-2600 > ESI U24XL > Audacity > FLAC”.\n"
         "- transferer = person who did the transfer (“Transferred by:”), "
         "not the tracker/uploader.\n"
+        "- setlist = ordered song titles only (skip banter/tuning/intro/encore "
+        "break lines and “?” placeholders). Normalize segues with “ > ” "
+        "(e.g. “Open Sesame into Dimensions” or “A>B” → “Open Sesame > "
+        "Dimensions” / “A > B”). Accept numbered, bulleted, or plain lists.\n"
         "When the info file has a single combined lineage "
         "(e.g. “SBD > Sony PCM-M1 > Wavelab > CD Wave > FLAC”), split it: "
         "put the capture/deck portion in source and the computer/encode "
@@ -223,12 +228,12 @@ def _companion_extract_prompt(context: dict[str, Any]) -> str:
         "from context (Douglass→Douglas), but do not invent missing lineage.\n"
         "- Prefer null/omit over guessing lineage, credits, or locations that "
         "are not supported by the companions or filenames.\n"
-        "- Ignore setlists for field extraction except set_label hints "
-        "(One Set / Set 1 / etc.).\n"
+        "- set_label may be One Set / Set 1 / etc. when the file says so.\n"
         "- Filenames may hint venue (e.g. jamshack) when the text is thin.\n"
         "Return JSON only.\n\n"
         f"CONTEXT:\n{json.dumps(context, indent=2)}\n"
     )
+
 
 
 def _research_missing_prompt(
@@ -318,6 +323,32 @@ def _needs_location_research(fields: dict[str, Any]) -> bool:
     return any(fields.get(k) in (None, "") for k in _RESEARCHABLE_FIELDS)
 
 
+def _normalize_setlist(raw: Any) -> list[str]:
+    from dat_tracker.review_hydrate import _normalize_setlist_title
+
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        title = _normalize_setlist_title(str(item))
+        if title:
+            out.append(title)
+    return out
+
+
+def _heuristic_setlist(companion_dir: Path) -> list[str]:
+    from dat_tracker.review_hydrate import parse_published_setlist
+
+    txt = find_published_show_txt(companion_dir)
+    if txt is None:
+        return []
+    return parse_published_setlist(txt)
+
+
 def extract_package_fields_from_companions(
     companion_dir: Path,
     *,
@@ -330,15 +361,17 @@ def extract_package_fields_from_companions(
     ) = None,
     result_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Extract package fields from a calibration / companion directory.
+    """Extract package fields (+ setlist in ``result_meta``) from companions.
 
     LLM-first: interpret companions with Gemini. Optionally research missing
     venue/city/state via Google Search when artist + date are known. Heuristic
-    parse runs only when the LLM is disabled or returns nothing.
+    parse runs only when the LLM is disabled or returns nothing. Setlist always
+    falls back to the published-setlist parser when the LLM omits it.
     """
     companion_dir = Path(companion_dir)
     context = gather_companion_sources(companion_dir)
     extracted: dict[str, Any] = {}
+    setlist: list[str] = []
     llm_ok = False
     used_research = False
 
@@ -347,10 +380,13 @@ def extract_package_fields_from_companions(
             fn = llm_extract_fn or (
                 lambda ctx: _gemini_extract_fields(ctx, project_root=project_root)
             )
-            extracted = _normalize_extracted(fn(context) or {})
-            llm_ok = bool(extracted)
+            raw = fn(context) or {}
+            setlist = _normalize_setlist(raw.get("setlist"))
+            extracted = _normalize_extracted(raw)
+            llm_ok = bool(extracted) or bool(setlist)
         except Exception:
             extracted = {}
+            setlist = []
             llm_ok = False
 
         if (
@@ -380,7 +416,70 @@ def extract_package_fields_from_companions(
             if key not in extracted or extracted.get(key) in (None, ""):
                 extracted[key] = value
 
+    if not setlist:
+        setlist = _heuristic_setlist(companion_dir)
+
     if result_meta is not None:
         result_meta["used_llm"] = bool(llm_ok)
         result_meta["used_research"] = bool(used_research)
+        result_meta["setlist"] = list(setlist)
     return extracted
+
+
+def companion_extract_for_show(
+    show_id: str,
+    *,
+    project_root: Path | None = None,
+    calibration_dir: Path | None = None,
+    use_llm: bool = True,
+    allow_web_research: bool = True,
+    llm_extract_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    llm_research_fn: (
+        Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None
+    ) = None,
+) -> dict[str, Any]:
+    """One-shot companion extract for a show: package fields + ``setlist``.
+
+    Tries calibration_dir (if given), then calibration / ground_truth /
+    tier_a dirs. Runs at most one LLM extract (+ optional web research).
+    """
+    from dat_tracker.review_hydrate import resolve_companion_dirs
+
+    root = project_root or Path.cwd()
+    companion_dirs: list[Path] = []
+    if calibration_dir is not None and Path(calibration_dir).is_dir():
+        companion_dirs.append(Path(calibration_dir))
+    for directory in resolve_companion_dirs(str(show_id), project_root=root):
+        if directory not in companion_dirs:
+            companion_dirs.append(directory)
+
+    published: dict[str, Any] = {"setlist": []}
+    want_llm = bool(use_llm)
+    used_llm = False
+    used_research = False
+    for directory in companion_dirs:
+        meta: dict[str, Any] = {}
+        extracted = extract_package_fields_from_companions(
+            directory,
+            use_llm=want_llm,
+            allow_web_research=bool(allow_web_research) and want_llm,
+            project_root=root,
+            llm_extract_fn=llm_extract_fn,
+            llm_research_fn=llm_research_fn,
+            result_meta=meta,
+        )
+        if meta.get("used_llm"):
+            used_llm = True
+            want_llm = False
+        if meta.get("used_research"):
+            used_research = True
+        for key, value in extracted.items():
+            if key not in published or published.get(key) in (None, ""):
+                published[key] = value
+        titles = meta.get("setlist") or []
+        if titles and not published.get("setlist"):
+            published["setlist"] = list(titles)
+
+    published["_used_llm"] = used_llm
+    published["_used_research"] = used_research
+    return published
