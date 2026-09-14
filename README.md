@@ -127,6 +127,10 @@ These steps assume you are comfortable opening a **terminal**: Terminal.app on m
 
 **dat-tracker is still early.** The flow that works today is: install dependencies → put a continuous FLAC on disk → run `scripts/track_show.py` with a [Google AI Studio](https://aistudio.google.com/apikey) API key. Full dump batching and a one-click installer are not ready yet.
 
+### Prebuilt `dat-review` binaries
+
+GitHub Releases publish single-file operator binaries (e.g. `dat-review-linux-x86_64`) under [Releases](https://github.com/151henry151/dat-tracker/releases). Download one for your OS, make it executable on Unix (`chmod +x`), and keep **ffmpeg** / **ffprobe** on your `PATH`. Whisper model weights download on first track; configure a Gemini API key in the TUI or via `.env`. Windows and macOS assets are built by `.github/workflows/release-binaries.yml` when GitHub Actions is available for the account.
+
 ### What you need on every OS
 
 | Requirement | Why |
