@@ -66,6 +66,20 @@ def test_format_track_rows():
     assert rows[1][1] == "banter"
 
 
+def test_resolve_track_row_selection_cut_and_playhead():
+    from dat_tracker.tui_review.widgets.track_table import resolve_track_row_selection
+
+    tracks = [
+        {"index": 1, "start_sec": 0.0, "end_sec": 40.0},
+        {"index": 2, "start_sec": 40.0, "end_sec": 100.0},
+    ]
+    cuts = [0.0, 40.0, 100.0]
+    assert resolve_track_row_selection(tracks, cuts, 1) == (1, 40.0)
+    assert resolve_track_row_selection(tracks, cuts, 0) == (0, 0.0)
+    assert resolve_track_row_selection(tracks, cuts, 99) is None
+    assert resolve_track_row_selection(tracks, [], 0) is None
+
+
 def test_package_form_values_defaults():
     plan = migrate_tracking_plan(
         {

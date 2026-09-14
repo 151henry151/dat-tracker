@@ -364,7 +364,7 @@ Tracking also writes `data/work/<show-id>/tracking_plan_as_delivered.json` (the 
 
 Waveforms: overview is a multi-row full-show silhouette (yellow cut markers, cyan band = detail window); detail zooms ~±20s around the selected cut with a time ruler.
 
-Keys in the TUI: click a yellow cut on the waveform to select it, then `←`/`→` to nudge by 0.1s (`Shift`±1s, `Ctrl`±0.01s); click elsewhere on the waveform to place the playhead; `[`/`]` prev/next cut; `a` Accept-all, `s` Save&approve, `r` Reset to LLM, `q` Quit; Space play/pause from the playhead; `l` loop around the selected cut. Insert/delete cut remain on `i`/`d` (hidden from the footer).
+Keys in the TUI: click a yellow cut on the waveform to select it, then `←`/`→` to nudge by 0.1s (`Shift`±1s, `Ctrl`±0.01s); click elsewhere on the waveform to place the playhead; click a track in the list to select its cut and jump the playhead to that track’s start; `[`/`]` prev/next cut; `a` Accept-all, `s` Save&approve, `r` Reset to LLM, `q` Quit; Space play/pause from the playhead; `l` loop around the selected cut. Insert/delete cut remain on `i`/`d` (hidden from the footer).
 ### 6. Optional: download from Archive.org
 
 With the venv activated, `ia` comes from the **`internetarchive`** dependency:

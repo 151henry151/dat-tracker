@@ -53,7 +53,10 @@ from dat_tracker.tui_review.widgets.package_form import (
     package_field_tooltip,
     package_form_values,
 )
-from dat_tracker.tui_review.widgets.track_table import format_track_rows
+from dat_tracker.tui_review.widgets.track_table import (
+    format_track_rows,
+    resolve_track_row_selection,
+)
 from dat_tracker.tui_review.widgets.waveform import DetailWaveformView, WaveformView
 from dat_tracker.waveform import load_or_build_envelope
 
@@ -183,6 +186,7 @@ class ReviewScreen(Screen[int]):
         self._player = AudioPlayer()
         self._playhead: float | None = None
         self._play_timer = None
+        self._suppress_track_nav = False
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -287,9 +291,17 @@ class ReviewScreen(Screen[int]):
 
     def _reload_tracks(self) -> None:
         table = self.query_one("#tracks", DataTable)
-        table.clear()
-        for row in format_track_rows(self.plan):
-            table.add_row(*row)
+        self._suppress_track_nav = True
+        try:
+            table.clear()
+            for row in format_track_rows(self.plan):
+                table.add_row(*row)
+        finally:
+            # Allow highlight events from the reload to flush before re-enabling.
+            self.call_after_refresh(self._enable_track_nav)
+
+    def _enable_track_nav(self) -> None:
+        self._suppress_track_nav = False
 
     def _hearing_span_sec(self) -> float | None:
         hearing = self._player.hearing_window
@@ -563,23 +575,50 @@ class ReviewScreen(Screen[int]):
         self._reload_tracks()
         self._set_status("Toggled segue")
 
+    @on(DataTable.RowHighlighted, "#tracks")
+    def _row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.cursor_row is None:
+            return
+        self._select_track_row(int(event.cursor_row))
+
     @on(DataTable.RowSelected, "#tracks")
     def _row_selected(self, event: DataTable.RowSelected) -> None:
         if event.cursor_row is None:
             return
-        self.selected_track_index = int(event.cursor_row) + 1
-        # Select the cut at the start of this track when possible.
-        tracks = self.plan.get("tracks") or []
-        if 0 <= event.cursor_row < len(tracks):
-            start = float(tracks[event.cursor_row]["start_sec"])
-            cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
-            if cuts:
-                self.selected_cut_index = min(
-                    range(len(cuts)), key=lambda i: abs(cuts[i] - start)
-                )
+        self._select_track_row(int(event.cursor_row))
+
+    def _select_track_row(self, cursor_row: int) -> None:
+        """Select track/cut for a table row and place playhead at track start."""
+        if self._suppress_track_nav:
+            return
+        tracks = sorted(
+            self.plan.get("tracks") or [], key=lambda t: int(t["index"])
+        )
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        resolved = resolve_track_row_selection(tracks, cuts, cursor_row)
+        if resolved is None:
+            return
+        cut_index, playhead_sec = resolved
+        track_index = int(tracks[cursor_row]["index"])
+        already = (
+            self.selected_track_index == track_index
+            and self.selected_cut_index == cut_index
+            and self._playhead is not None
+            and abs(float(self._playhead) - float(playhead_sec)) < 1e-6
+        )
+        if already:
+            return
+        if self._player.is_playing:
+            self._player.stop()
+            self._stop_play_ui()
+        self.selected_track_index = track_index
+        self.selected_cut_index = int(cut_index)
+        self._playhead = float(playhead_sec)
         self._sync_track_editors()
         self._refresh_waveforms()
-        self._set_status("Selected track")
+        self._set_status(
+            f"Selected track — playhead {_format_hear_clock(playhead_sec)}"
+        )
 
     @on(WaveformView.CutMarkerClicked)
     def _cut_marker_clicked(self, event: WaveformView.CutMarkerClicked) -> None:

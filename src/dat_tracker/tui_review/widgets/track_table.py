@@ -22,3 +22,21 @@ def format_track_rows(plan: dict[str, Any]) -> list[tuple[str, str, str, str, st
             )
         )
     return rows
+
+
+def resolve_track_row_selection(
+    tracks: list[dict[str, Any]],
+    cuts_sec: list[float],
+    cursor_row: int,
+) -> tuple[int, float] | None:
+    """Map a track-table row to ``(cut_index, playhead_sec)`` at track start.
+
+    Tracks are assumed sorted by index (same order as :func:`format_track_rows`).
+    """
+    if cursor_row < 0 or cursor_row >= len(tracks) or not cuts_sec:
+        return None
+    start = float(tracks[cursor_row]["start_sec"])
+    cut_index = min(
+        range(len(cuts_sec)), key=lambda i: abs(float(cuts_sec[i]) - start)
+    )
+    return int(cut_index), start
