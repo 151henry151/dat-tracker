@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Restore the longer README background (problem survey, approach, status, roadmap)
+  below the end-user try-out section, and add product screenshots under
+  ``docs/screenshots/``.
+
 ## [0.1.1] - 2026-09-14
 
 ### Added
