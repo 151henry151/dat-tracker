@@ -1,6 +1,8 @@
-"""Show-picker TUI: choose a tracked show to review."""
+"""Show-picker TUI: choose a tracked (or untracked dump) show to review."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -25,54 +27,86 @@ class ShowPickerScreen(Screen[ReviewableShow | None]):
     """
 
     BINDINGS = [
-        Binding("q", "quit_picker", "Quit", show=True),
+        Binding("q", "quit_picker", "Back", show=True),
         Binding("enter", "open_selected", "Open", show=True),
         Binding("r", "refresh", "Refresh", show=True),
     ]
 
-    def __init__(self, shows: list[ReviewableShow]) -> None:
+    def __init__(
+        self,
+        shows: list[ReviewableShow],
+        *,
+        dump_root: Path | None = None,
+    ) -> None:
         super().__init__()
         self.shows = list(shows)
+        self.dump_root = dump_root
         self._by_row: dict[int, ReviewableShow] = {}
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        yield Static(
-            "Select a show and press Enter to review. "
-            "q quits. Shows come from data/work/*/tracking_plan*.json.",
-            id="hint",
-        )
+        if self.dump_root is not None:
+            hint = (
+                f"Shows under {self.dump_root}. "
+                "Enter opens (tracks untracked FLACs first). q goes back."
+            )
+        else:
+            hint = (
+                "Select a show and press Enter to review. "
+                "q quits. Shows come from data/work/*/tracking_plan*.json."
+            )
+        yield Static(hint, id="hint")
         yield DataTable(id="shows")
         yield Footer()
 
     def on_mount(self) -> None:
         table = self.query_one("#shows", DataTable)
         table.cursor_type = "row"
-        table.add_columns("Show", "Status", "Tracks", "Audio", "Duration")
+        if self.dump_root is not None:
+            table.add_columns("Show", "Status", "Tracks", "Audio", "Path")
+        else:
+            table.add_columns("Show", "Status", "Tracks", "Audio", "Duration")
         self._fill_table()
         if not self.shows:
-            self.query_one("#hint", Static).update(
-                "No reviewable shows found under data/work. "
-                "Run tracking first, or pass --plan PATH."
-            )
+            if self.dump_root is not None:
+                self.query_one("#hint", Static).update(
+                    f"No FLACs found under {self.dump_root}. q goes back."
+                )
+            else:
+                self.query_one("#hint", Static).update(
+                    "No reviewable shows found under data/work. "
+                    "Run tracking first, or pass --plan PATH."
+                )
 
     def _fill_table(self) -> None:
         table = self.query_one("#shows", DataTable)
         table.clear()
         self._by_row.clear()
         for i, show in enumerate(self.shows):
-            dur = (
-                f"{show.duration_sec / 60.0:.1f}m"
-                if show.duration_sec is not None
-                else "—"
-            )
-            table.add_row(
-                show.show_id,
-                show.review_status,
-                str(show.track_count),
-                "yes" if show.has_audio else "missing",
-                dur,
-            )
+            if self.dump_root is not None:
+                path_col = show.relative_path or (
+                    str(show.source_path) if show.source_path else "—"
+                )
+                table.add_row(
+                    show.show_id,
+                    show.review_status,
+                    str(show.track_count) if show.track_count else "—",
+                    "yes" if show.has_audio else "missing",
+                    path_col,
+                )
+            else:
+                dur = (
+                    f"{show.duration_sec / 60.0:.1f}m"
+                    if show.duration_sec is not None
+                    else "—"
+                )
+                table.add_row(
+                    show.show_id,
+                    show.review_status,
+                    str(show.track_count),
+                    "yes" if show.has_audio else "missing",
+                    dur,
+                )
             self._by_row[i] = show
 
     def _selected(self) -> ReviewableShow | None:
@@ -82,10 +116,8 @@ class ShowPickerScreen(Screen[ReviewableShow | None]):
         return self._by_row.get(int(table.cursor_row))
 
     def _open_show(self, show: ReviewableShow) -> None:
-        self.query_one("#hint", Static).update(
-            f"Opening {show.show_id} — preparing review…"
-        )
-        # Dismiss via the App so we are not awaiting dismiss inside a screen handler.
+        verb = "Tracking" if show.needs_tracking else "Opening"
+        self.query_one("#hint", Static).update(f"{verb} {show.show_id}…")
         self.app.call_later(self.dismiss, show)
 
     def action_open_selected(self) -> None:

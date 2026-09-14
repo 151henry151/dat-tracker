@@ -14,6 +14,7 @@ dependencies = [
   "internetarchive>=4.0",
   "jsonschema>=4.0",
   "google-genai>=1.0",
+  "mutagen>=1.47",
 ]
 
 [project.optional-dependencies]
@@ -25,7 +26,6 @@ review = [
   "numpy>=1.26",
   "soundfile>=0.12",
   "sounddevice>=0.4",
-  "mutagen>=1.47",
 ]
 dev = [
   "pytest>=8.0",

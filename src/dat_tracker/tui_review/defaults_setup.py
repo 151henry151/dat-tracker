@@ -7,6 +7,7 @@ from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Input, Label, Static
 
 from dat_tracker.review_defaults import (
@@ -17,8 +18,8 @@ from dat_tracker.review_defaults import (
 )
 
 
-class DefaultsSetupApp(App[bool]):
-    """Collect tracker name; Save writes XDG (or DAT_TRACKER_DEFAULTS)."""
+class DefaultsSetupScreen(Screen[bool]):
+    """Collect tracker name; dismiss True if saved, False if skipped."""
 
     CSS = """
     #hint {
@@ -80,16 +81,33 @@ class DefaultsSetupApp(App[bool]):
             for key in OPERATOR_DEFAULT_KEYS
         }
         save_operator_defaults(fields, project_root=self.project_root)
-        self.exit(True)
+        self.dismiss(True)
 
     def action_skip(self) -> None:
-        self.exit(False)
+        self.dismiss(False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-save":
             self.action_save()
         elif event.button.id == "btn-skip":
             self.action_skip()
+
+
+class DefaultsSetupApp(App[bool]):
+    """Standalone wrapper for ``dat-review --setup-defaults``."""
+
+    def __init__(self, *, project_root: Path | None = None) -> None:
+        super().__init__()
+        self.project_root = project_root
+
+    def on_mount(self) -> None:
+        self.push_screen(
+            DefaultsSetupScreen(project_root=self.project_root),
+            self._done,
+        )
+
+    def _done(self, saved: bool | None) -> None:
+        self.exit(bool(saved))
 
 
 def run_defaults_setup(*, project_root: Path | None = None) -> bool:

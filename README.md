@@ -74,7 +74,7 @@ Early development (**0.1.0**). Version stays at 0.1.0 until Live Bluegrass packa
 - Tier A helpers to align Jon packages inside extracted raws and score plans against known cuts.
 - Classical/ASR proposal stack (silence, energy, speech islands) feeding sparse Gemini listening.
 - End-to-end `scripts/track_show.py`: Whisper → Gemini Flash listen → optional refine / gap-fill / Pro escalate → tracking-plan JSON → **review gate** → optional etree package export.
-- Cross-platform Textual review TUI (`dat-review`): run with no args to pick a show from `data/work` (picker stays in the TUI through prepare into review), or `dat-review <show-id>`; waveform overview/detail, cut edit, track/package metadata, playback, Accept-all / Save&approve; packaging refuses unapproved plans unless `--force-unreviewed`.
+- Cross-platform Textual review TUI (`dat-review`): with no args, prompt for a continuous-FLAC dump directory (defaults to `data/raw/extracted` when present), list shows, run tracking for untracked FLACs, then review → package → optional IA upload; `w` / `--work-plans` lists existing `data/work` plans (calibration); or `dat-review <show-id>`; waveform overview/detail, cut edit, track/package metadata, playback, Accept-all / Save&approve; packaging refuses unapproved plans unless `--force-unreviewed`.
 - Hardening from calibration loops: endpoint restoration, refine windows, snaps, JSON/transport retries, near-zero merge fix, sparse gap-fill probes, temperature 0.0, segue guidance in the listen prompt.
 
 ### In progress
@@ -364,13 +364,21 @@ Outputs land under `data/work/<show-id>/` (plan JSON, listen clips, optional `pa
 ### 5b. Review a plan (required before packaging)
 
 ```bash
-# Easiest: open the show picker (lists data/work plans)
+# Operator path: pick the FLAC dump directory, then a show
+# (untracked FLACs are tracked automatically before review)
 dat-review
 
-# First run (or anytime): set your tracker name (Tracked & Uploaded by)
+# Skip the prompt when you already know the dump path
+dat-review --dump-root data/raw/extracted
+
+# Calibration / existing plans only (old picker behavior)
+dat-review --work-plans
+# (same as pressing w on the dump-directory screen)
+
+# Optional anytime: open tracker-name defaults (also shown in-session on first run)
 dat-review --setup-defaults
 
-# Or jump straight to one show
+# Jump straight to one already-tracked show
 dat-review sbb2001-04-27.flac16
 
 # Headless approve when the auto plan looks good
@@ -387,6 +395,8 @@ Tracking also writes `data/work/<show-id>/tracking_plan_as_delivered.json` (the 
 Waveforms: overview is a multi-row full-show silhouette (yellow cut markers, cyan band = detail window); detail zooms ~±20s around the selected cut with a time ruler.
 
 Keys in the TUI: click a yellow cut on the waveform to select it, then `←`/`→` to nudge by 0.1s (`Shift`±1s, `Ctrl`±0.01s); click elsewhere on the waveform to place the playhead; click a track in the list to select its cut and jump the playhead to that track’s start; `[`/`]` prev/next cut; `a` Accept-all, `s` Save&approve, `r` Reset to LLM, `q` Quit; Space play/pause from the playhead; `l` loop around the selected cut. Insert/delete cut remain on `i`/`d` (hidden from the footer).
+
+After **Accept-all** or **Save & approve**, the same TUI continues into packaging (`data/out/<show_id>/` tagged FLACs + show.txt + ffp), then an Archive.org upload confirm screen (Log in / Upload / Skip / Quit). Login uses your archive.org email and password inside the TUI (same result as `ia configure`). See [`docs/upload-checklist.md`](docs/upload-checklist.md).
 ### 6. Optional: download from Archive.org
 
 With the venv activated, `ia` comes from the **`internetarchive`** dependency:

@@ -30,6 +30,10 @@ class ReviewableShow:
     track_count: int
     duration_sec: float | None
     work_dir: Path
+    needs_tracking: bool = False
+    relative_path: str = ""
+    artist: str | None = None
+    date: str | None = None
 
     @property
     def has_audio(self) -> bool:

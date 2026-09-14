@@ -1,4 +1,4 @@
-"""Single Textual process: show picker → prepare → review (no terminal bounce)."""
+"""Single Textual process: dump root → show picker → track? → prepare → review."""
 
 from __future__ import annotations
 
@@ -11,9 +11,76 @@ from textual.app import App
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
-from dat_tracker.review_discover import ReviewableShow
+from dat_tracker.dump_discover import default_dump_root, discover_dump_shows
+from dat_tracker.review_discover import ReviewableShow, discover_reviewable_shows
 from dat_tracker.tui_review.app import ReviewScreen
+from dat_tracker.tui_review.dump_root import DumpRootScreen
 from dat_tracker.tui_review.picker import ShowPickerScreen
+
+
+def ensure_show_tracked(
+    show: ReviewableShow,
+    *,
+    project_root: Path,
+    work_dir: Path | None = None,
+    tracker: str | None = None,
+) -> ReviewableShow:
+    """Run the LLM tracker when the dump FLAC has no plan yet; return an updated show."""
+    if not show.needs_tracking and show.plan_path.is_file():
+        return show
+    if show.source_path is None or not show.source_path.is_file():
+        raise FileNotFoundError(f"Missing source audio for {show.show_id}")
+
+    from dat_tracker.track_show import run_track_show
+
+    root = Path(project_root)
+    work_root = Path(work_dir) if work_dir is not None else root / "data" / "work"
+    artist = (show.artist or "").strip() or "Unknown Artist"
+    date = (show.date or "").strip() or "1970-01-01"
+    result = run_track_show(
+        source_audio=show.source_path,
+        show_id=show.show_id,
+        work_root=work_root,
+        artist=artist,
+        date=date,
+        tracker=tracker or "dat-tracker",
+        venue=None,
+        city=None,
+        state=None,
+        project_root=root,
+        skip_package=True,
+        interactive_review=False,
+        accept_all_review=False,
+        force_unreviewed=False,
+    )
+    plan_path = work_root / show.show_id / "tracking_plan_gemini.json"
+    paths_map = result.get("paths") if isinstance(result.get("paths"), dict) else {}
+    if paths_map.get("plan"):
+        plan_path = Path(str(paths_map["plan"]))
+    if not plan_path.is_file():
+        plan = result.get("plan")
+        if isinstance(plan, dict):
+            plan_path.parent.mkdir(parents=True, exist_ok=True)
+            plan_path.write_text(json.dumps(plan, indent=2) + "\n")
+        else:
+            raise RuntimeError(f"Tracking did not write a plan for {show.show_id}")
+    doc = json.loads(plan_path.read_text())
+    review = doc.get("review") if isinstance(doc.get("review"), dict) else {}
+    tracks = doc.get("tracks") if isinstance(doc.get("tracks"), list) else []
+    duration = doc.get("duration_sec")
+    return ReviewableShow(
+        show_id=str(doc.get("show_id") or show.show_id),
+        plan_path=plan_path,
+        source_path=show.source_path,
+        review_status=str(review.get("status") or "pending"),
+        track_count=len(tracks),
+        duration_sec=float(duration) if duration is not None else None,
+        work_dir=plan_path.parent,
+        needs_tracking=False,
+        relative_path=show.relative_path,
+        artist=show.artist,
+        date=show.date,
+    )
 
 
 class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
@@ -74,8 +141,8 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
         plan = prepare_plan(
             raw,
             project_root=self.project_root,
-            artist=self.artist,
-            date=self.date,
+            artist=self.artist or self.show.artist,
+            date=self.date or self.show.date,
             tracker=self.tracker or self.approved_by,
             venue=self.venue,
             city=self.city,
@@ -109,8 +176,69 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
         self.app.call_later(self.dismiss, None)
 
 
+class TrackingScreen(Screen[ReviewableShow | None]):
+    """In-TUI wait while Gemini tracking writes a plan for an untracked FLAC."""
+
+    CSS = """
+    #track {
+        width: 1fr;
+        height: 1fr;
+        content-align: center middle;
+        padding: 2 4;
+    }
+    """
+
+    def __init__(
+        self,
+        show: ReviewableShow,
+        *,
+        project_root: Path,
+        work_dir: Path | None = None,
+        tracker: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.show = show
+        self.project_root = Path(project_root)
+        self.work_dir = work_dir
+        self.tracker = tracker
+
+    def compose(self):  # type: ignore[override]
+        yield Header(show_clock=True)
+        yield Static(
+            f"Tracking {self.show.show_id}\n"
+            f"{self.show.relative_path or self.show.source_path}\n"
+            "(Whisper + Gemini — this can take several minutes…)",
+            id="track",
+        )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_tracking()
+
+    @work(thread=True, exclusive=True)
+    def run_tracking(self) -> None:
+        try:
+            result = ensure_show_tracked(
+                self.show,
+                project_root=self.project_root,
+                work_dir=self.work_dir,
+                tracker=self.tracker,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.app.call_from_thread(self._fail, str(exc))
+            return
+        self.app.call_from_thread(self.dismiss, result)
+
+    def _fail(self, message: str) -> None:
+        self.query_one("#track", Static).update(
+            f"Tracking failed for {self.show.show_id}:\n{message}\n\n"
+            "Returning to show list…"
+        )
+        self.app.call_later(self.dismiss, None)
+
+
 class ReviewSessionApp(App[int]):
-    """Picker and review in one App.run() so the terminal never reappears mid-flow."""
+    """Dump root (optional) → picker → track? → prepare → review in one App.run()."""
 
     def __init__(
         self,
@@ -125,6 +253,11 @@ class ReviewSessionApp(App[int]):
         city: str | None = None,
         state: str | None = None,
         source_override: Path | None = None,
+        dump_first: bool = False,
+        initial_dump_root: Path | None = None,
+        work_dir: Path | None = None,
+        dump_root: Path | None = None,
+        prompt_defaults: bool = False,
     ) -> None:
         super().__init__()
         self.shows = list(shows)
@@ -137,15 +270,128 @@ class ReviewSessionApp(App[int]):
         self.city = city
         self.state = state
         self.source_override = source_override
+        self.dump_first = dump_first
+        self.initial_dump_root = initial_dump_root
+        self.work_dir = work_dir
+        self.dump_root = dump_root
+        self.prompt_defaults = prompt_defaults
         self.exit_code = 1
 
     def on_mount(self) -> None:
-        self.push_screen(ShowPickerScreen(self.shows), self._on_picked)
+        if self.prompt_defaults:
+            from dat_tracker.review_defaults import defaults_are_configured
+            from dat_tracker.tui_review.defaults_setup import DefaultsSetupScreen
+
+            if not defaults_are_configured(project_root=self.project_root):
+                self.push_screen(
+                    DefaultsSetupScreen(project_root=self.project_root),
+                    self._on_defaults_done,
+                )
+                return
+        self._open_entry_screen()
+
+    def _on_defaults_done(self, _saved: bool | None) -> None:
+        self._open_entry_screen()
+
+    def _open_entry_screen(self) -> None:
+        if self.dump_first:
+            initial = self.initial_dump_root or default_dump_root(self.project_root)
+            self.push_screen(
+                DumpRootScreen(
+                    project_root=self.project_root,
+                    initial_path=initial,
+                ),
+                self._on_dump_root,
+            )
+        else:
+            self.push_screen(
+                ShowPickerScreen(self.shows, dump_root=self.dump_root),
+                self._on_picked,
+            )
+
+    def _on_dump_root(self, path: Path | str | None) -> None:
+        if path is None:
+            self.exit(1)
+            return
+        if path == "work_plans":
+            work = self.work_dir or (self.project_root / "data" / "work")
+            self.dump_root = None
+            self.shows = discover_reviewable_shows(
+                project_root=self.project_root, work_dir=work
+            )
+        else:
+            dump = Path(path)
+            self.dump_root = dump
+            self.shows = discover_dump_shows(
+                dump,
+                project_root=self.project_root,
+                work_dir=self.work_dir,
+            )
+            self._remember_dump_root(dump)
+        self.push_screen(
+            ShowPickerScreen(self.shows, dump_root=self.dump_root),
+            self._on_picked,
+        )
+
+    def _remember_dump_root(self, path: Path) -> None:
+        try:
+            from dat_tracker.review_defaults import user_defaults_path
+
+            target = user_defaults_path()
+            target.parent.mkdir(parents=True, exist_ok=True)
+            existing: dict[str, Any] = {}
+            if target.is_file():
+                try:
+                    raw = json.loads(target.read_text())
+                    if isinstance(raw, dict):
+                        existing = raw
+                except (OSError, json.JSONDecodeError):
+                    existing = {}
+            existing["last_dump_root"] = str(path)
+            target.write_text(json.dumps(existing, indent=2) + "\n")
+        except OSError:
+            pass
 
     def _on_picked(self, show: ReviewableShow | None) -> None:
         if show is None:
+            if self.dump_first:
+                initial = self.dump_root or self.initial_dump_root or default_dump_root(
+                    self.project_root
+                )
+                self.push_screen(
+                    DumpRootScreen(
+                        project_root=self.project_root,
+                        initial_path=initial,
+                    ),
+                    self._on_dump_root,
+                )
+                return
             self.exit(1)
             return
+        if show.needs_tracking or not show.plan_path.is_file():
+            self.push_screen(
+                TrackingScreen(
+                    show,
+                    project_root=self.project_root,
+                    work_dir=self.work_dir,
+                    tracker=self.tracker or self.approved_by,
+                ),
+                self._on_tracked,
+            )
+            return
+        self._push_prepare(show)
+
+    def _on_tracked(self, show: ReviewableShow | None) -> None:
+        if show is None:
+            self._refresh_picker()
+            return
+        # Refresh list entry for this show.
+        self.shows = [
+            show if s.show_id == show.show_id else s for s in self.shows
+        ]
+        self._push_prepare(show)
+
+    def _push_prepare(self, show: ReviewableShow) -> None:
         self.push_screen(
             PreparingScreen(
                 show,
@@ -162,12 +408,23 @@ class ReviewSessionApp(App[int]):
             self._on_prepared,
         )
 
+    def _refresh_picker(self) -> None:
+        if self.dump_root is not None:
+            self.shows = discover_dump_shows(
+                self.dump_root,
+                project_root=self.project_root,
+                work_dir=self.work_dir,
+            )
+        self.push_screen(
+            ShowPickerScreen(self.shows, dump_root=self.dump_root),
+            self._on_picked,
+        )
+
     def _on_prepared(
         self, result: tuple[Path, dict[str, Any], Path | None] | None
     ) -> None:
         if result is None:
-            # Preparation failed — return to picker rather than dumping to shell.
-            self.push_screen(ShowPickerScreen(self.shows), self._on_picked)
+            self._refresh_picker()
             return
         plan_path, plan, source = result
         self.push_screen(
@@ -177,13 +434,65 @@ class ReviewSessionApp(App[int]):
                 source_audio=source,
                 approved_by=self.approved_by,
                 rehydrate=False,
-            )
+                project_root=self.project_root,
+            ),
+            self._on_reviewed,
         )
+
+    def _on_reviewed(self, result: Any) -> None:
+        if not (isinstance(result, tuple) and result and result[0] == "approved"):
+            # Quit without approve — stay in the TUI and return to the show list.
+            self._refresh_picker()
+            return
+        approved = result[1]
+        from dat_tracker.review_cli import _resolve_source
+        from dat_tracker.tui_review.post_approve import run_post_approve_flow
+
+        source = _resolve_source(
+            plan=approved,
+            explicit=self.source_override,
+            project_root=self.project_root,
+            fallback=None,
+        )
+
+        def on_another() -> None:
+            self._refresh_picker()
+
+        def on_back() -> None:
+            self.push_screen(
+                ReviewScreen(
+                    plan_path=self._plan_path_for(approved),
+                    plan=approved,
+                    source_audio=source,
+                    approved_by=self.approved_by,
+                    rehydrate=False,
+                    project_root=self.project_root,
+                ),
+                self._on_reviewed,
+            )
+
+        run_post_approve_flow(
+            self,
+            plan=approved,
+            plan_path=self._plan_path_for(approved),
+            source_audio=source,
+            project_root=self.project_root,
+            allow_another=True,
+            on_another=on_another,
+            on_back_to_review=on_back,
+        )
+
+    def _plan_path_for(self, plan: dict[str, Any]) -> Path:
+        show_id = str(plan.get("show_id") or "")
+        for show in self.shows:
+            if show.show_id == show_id:
+                return show.plan_path
+        return self.project_root / "data" / "work" / show_id / "tracking_plan_gemini.json"
 
 
 def run_review_session(
     *,
-    shows: list[ReviewableShow],
+    shows: list[ReviewableShow] | None = None,
     project_root: Path,
     approved_by: str | None = None,
     artist: str | None = None,
@@ -193,9 +502,14 @@ def run_review_session(
     city: str | None = None,
     state: str | None = None,
     source_override: Path | None = None,
+    dump_first: bool = False,
+    initial_dump_root: Path | None = None,
+    work_dir: Path | None = None,
+    dump_root: Path | None = None,
+    prompt_defaults: bool = False,
 ) -> int:
     app = ReviewSessionApp(
-        shows=shows,
+        shows=list(shows or []),
         project_root=project_root,
         approved_by=approved_by,
         artist=artist,
@@ -205,6 +519,11 @@ def run_review_session(
         city=city,
         state=state,
         source_override=source_override,
+        dump_first=dump_first,
+        initial_dump_root=initial_dump_root,
+        work_dir=work_dir,
+        dump_root=dump_root,
+        prompt_defaults=prompt_defaults,
     )
     result = app.run()
     if isinstance(result, int):

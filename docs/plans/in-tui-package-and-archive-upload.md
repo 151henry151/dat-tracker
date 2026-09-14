@@ -1,6 +1,6 @@
 # Deferred: in-TUI package and Archive.org upload
 
-**Status:** stashed — not in progress. Resume when the maintainer says something like: *“let’s go back to that in-TUI package and Archive.org upload plan.”*
+**Status:** implemented in-tree (package pipeline + IA upload module + post-approve TUI screens). Keep this file as the design note; prefer README + [`docs/upload-checklist.md`](../upload-checklist.md) for operators.
 
 **Cursor plan file (may also exist locally):** `.cursor/plans/tui_package_and_upload_bd3d7d2b.plan.md` (or under `~/.cursor/plans/`).
 

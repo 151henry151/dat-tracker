@@ -73,7 +73,7 @@ def _format_hear_clock(sec: float) -> str:
     return f"{m}:{s:04.1f}"
 
 
-class ReviewScreen(Screen[int]):
+class ReviewScreen(Screen[tuple[str, dict[str, Any]] | None]):
     """Required review gate UI with Accept-all fast path."""
 
     CSS = """
@@ -154,9 +154,11 @@ class ReviewScreen(Screen[int]):
         source_audio: Path | None = None,
         approved_by: str | None = None,
         rehydrate: bool = True,
+        project_root: Path | None = None,
     ) -> None:
         super().__init__()
         self.plan_path = Path(plan_path)
+        self.project_root = Path(project_root) if project_root else _REPO_ROOT
         self.plan = migrate_tracking_plan(plan)
         # Snapshot before hydrate so a first-open legacy dir keeps the
         # on-disk LLM lattice (not titles we fill in-memory).
@@ -164,11 +166,11 @@ class ReviewScreen(Screen[int]):
         if rehydrate:
             self.plan = hydrate_plan_from_notes(self.plan)
             self.plan = hydrate_plan_from_companions(
-                self.plan, project_root=_REPO_ROOT
+                self.plan, project_root=self.project_root
             )
             # Known spelling fixes always; Gemini text polish when API key present.
             self.plan = polish_package_metadata(
-                self.plan, project_root=_REPO_ROOT, use_llm=True
+                self.plan, project_root=self.project_root, use_llm=True
             )
         self.source_audio = Path(source_audio) if source_audio else None
         self.approved_by = approved_by
@@ -696,8 +698,8 @@ class ReviewScreen(Screen[int]):
         self.plan = approved
         self.dirty = False
         self.exit_code = 0
-        self._set_status("Approved (accept_all)")
-        self.app.exit(self.exit_code)
+        self._set_status("Approved (accept_all) — packaging…")
+        self.dismiss(("approved", approved))
 
     def action_save_approve(self) -> None:
         self._stop_play_ui()
@@ -711,8 +713,8 @@ class ReviewScreen(Screen[int]):
         self.plan = approved
         self.dirty = False
         self.exit_code = 0
-        self._set_status("Approved (edited)")
-        self.app.exit(self.exit_code)
+        self._set_status("Approved (edited) — packaging…")
+        self.dismiss(("approved", approved))
 
     def action_reset_llm(self) -> None:
         """Restore cuts/tracks from the as-delivered LLM snapshot; keep package."""
@@ -728,9 +730,11 @@ class ReviewScreen(Screen[int]):
             self.plan, delivered, keep_package=True
         )
         self.plan = hydrate_plan_from_notes(self.plan)
-        self.plan = hydrate_plan_from_companions(self.plan, project_root=_REPO_ROOT)
+        self.plan = hydrate_plan_from_companions(
+            self.plan, project_root=self.project_root
+        )
         self.plan = polish_package_metadata(
-            self.plan, project_root=_REPO_ROOT, use_llm=True
+            self.plan, project_root=self.project_root, use_llm=True
         )
         self.dirty = True
         self.selected_cut_index = 1 if len(self.plan.get("cuts_sec") or []) > 2 else 0
@@ -759,7 +763,7 @@ class ReviewScreen(Screen[int]):
             }
             self._write_plan(pending)
         self.exit_code = 1
-        self.app.exit(self.exit_code)
+        self.dismiss(None)
 
     def action_nudge_cut(self, delta: float) -> None:
         cuts = self.plan.get("cuts_sec") or []
@@ -923,19 +927,42 @@ class ReviewApp(App[int]):
         source_audio: Path | None = None,
         approved_by: str | None = None,
         rehydrate: bool = True,
+        project_root: Path | None = None,
     ) -> None:
         super().__init__()
+        self.project_root = Path(project_root) if project_root else _REPO_ROOT
         self._screen_kwargs = {
             "plan_path": plan_path,
             "plan": plan,
             "source_audio": source_audio,
             "approved_by": approved_by,
             "rehydrate": rehydrate,
+            "project_root": self.project_root,
         }
         self.exit_code = 1
 
     def on_mount(self) -> None:
-        self.push_screen(ReviewScreen(**self._screen_kwargs))
+        self.push_screen(ReviewScreen(**self._screen_kwargs), self._on_review_done)
+
+    def _on_review_done(self, result: Any) -> None:
+        if not (isinstance(result, tuple) and result and result[0] == "approved"):
+            self.exit(getattr(self, "exit_code", 1))
+            return
+        approved = result[1]
+        from dat_tracker.tui_review.post_approve import run_post_approve_flow
+
+        run_post_approve_flow(
+            self,
+            plan=approved,
+            plan_path=self._screen_kwargs["plan_path"],
+            source_audio=self._screen_kwargs.get("source_audio"),
+            project_root=self.project_root,
+            allow_another=False,
+            on_back_to_review=lambda: self.push_screen(
+                ReviewScreen(**{**self._screen_kwargs, "plan": approved, "rehydrate": False}),
+                self._on_review_done,
+            ),
+        )
 
 
 def run_review_app(
@@ -945,6 +972,7 @@ def run_review_app(
     source_audio: Path | None = None,
     approved_by: str | None = None,
     rehydrate: bool = True,
+    project_root: Path | None = None,
 ) -> int:
     app = ReviewApp(
         plan_path=plan_path,
@@ -952,6 +980,7 @@ def run_review_app(
         source_audio=source_audio,
         approved_by=approved_by,
         rehydrate=rehydrate,
+        project_root=project_root,
     )
     result = app.run()
     if isinstance(result, int):

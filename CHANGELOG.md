@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Make `dat-review` dump-directory-first: prompt for continuous FLACs, list shows (including untracked), run tracking when needed, then open review; add `--dump-root` and `--work-plans` escapes.
+- Prompt for tracker defaults inside the same `dat-review` session (no separate app), and return to the show list on review quit instead of exiting to the shell.
+- Continue `dat-review` after Accept-all / Save & approve into packaging (`data/out/<show_id>/` with Vorbis tags, show.txt, ffp) and a confirmed Archive.org upload flow (never silent).
+- Add in-TUI Archive.org login (email/password → local `ia` config) on the upload confirm screen.
+- Add `package_pipeline.build_package` and `ia_upload` helpers with catalog/`ia` preflight; document the operator path in `docs/upload-checklist.md`.
+- Move `mutagen` to core dependencies so packaging can write FLAC tags without the review extra set.
 - Prefer Gemini text extraction for companion show ``.txt`` package fields, with optional Google Search research to fill missing venue/city/state when artist and date are known.
 - Extract published setlists via the same Gemini companion pass (shared with package seed) so odd/bullet layouts still hydrate track titles.
 - Add ``scripts/verify_work_package_seed.py`` to batch-check ``data/work`` shows for blank package fields via the LLM seed path.

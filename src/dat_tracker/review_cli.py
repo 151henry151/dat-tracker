@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from dat_tracker.review_defaults import defaults_are_configured
 from dat_tracker.review_discover import (
     discover_reviewable_shows,
     resolve_show_for_review,
@@ -133,8 +132,9 @@ def run_interactive_review(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Review a tracking plan. With no arguments, opens a show picker "
-            "for data/work. Pass a show id, or --plan, to skip the picker."
+            "Review tracking plans. With no arguments, ask for a FLAC dump "
+            "directory, list shows, track if needed, then review. "
+            "Pass a show id, --plan, or --work-plans to skip the dump prompt."
         )
     )
     parser.add_argument(
@@ -160,6 +160,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=None,
         help="Work root containing per-show dirs (default: <root>/data/work)",
+    )
+    parser.add_argument(
+        "--dump-root",
+        type=Path,
+        default=None,
+        help="Skip the dump prompt and list FLACs under this directory",
+    )
+    parser.add_argument(
+        "--work-plans",
+        action="store_true",
+        help="Skip dump prompt; list existing data/work tracking plans only",
     )
     parser.add_argument(
         "--root",
@@ -219,24 +230,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Saved operator defaults." if saved else "Skipped.", file=sys.stderr)
         return 0 if saved else 1
 
-    # First interactive launch: offer defaults if none configured.
-    interactive = (
-        not args.accept_all
-        and args.plan is None
-        and not show_id
-        and not args.skip_defaults_prompt
-    )
-    if interactive and not defaults_are_configured(project_root=project_root):
-        try:
-            from dat_tracker.tui_review.defaults_setup import run_defaults_setup
-        except ImportError:
-            run_defaults_setup = None  # type: ignore[assignment]
-        if run_defaults_setup is not None:
-            print(
-                "No tracker default yet — set your name for “Tracked & Uploaded by”.",
-                file=sys.stderr,
-            )
-            run_defaults_setup(project_root=project_root)
+    # Defaults (when missing) are prompted inside ReviewSessionApp so the
+    # operator never leaves the TUI between setup and dump/review.
+    prompt_defaults = not args.skip_defaults_prompt
 
     plan_path: Path | None = args.plan
     source_from_show: Path | None = None
@@ -262,7 +258,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         else:
-            # Interactive picker → prepare → review in one Textual process.
+            # Interactive: dump-first (default), or work-plans / --dump-root.
             try:
                 from dat_tracker.tui_review.session import run_review_session
             except ImportError as exc:
@@ -276,11 +272,55 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            shows = discover_reviewable_shows(
-                project_root=project_root, work_dir=work_dir
-            )
+            if args.work_plans:
+                shows = discover_reviewable_shows(
+                    project_root=project_root, work_dir=work_dir
+                )
+                return run_review_session(
+                    shows=shows,
+                    project_root=project_root,
+                    approved_by=args.approved_by,
+                    artist=args.artist,
+                    date=args.date,
+                    tracker=args.tracker,
+                    venue=args.venue,
+                    city=args.city,
+                    state=args.state,
+                    source_override=args.source,
+                    dump_first=False,
+                    work_dir=work_dir,
+                    prompt_defaults=prompt_defaults,
+                )
+            if args.dump_root is not None:
+                from dat_tracker.dump_discover import discover_dump_shows
+
+                dump = Path(args.dump_root).expanduser()
+                if not dump.is_absolute():
+                    dump = (project_root / dump).resolve()
+                if not dump.is_dir():
+                    print(f"Dump root is not a directory: {dump}", file=sys.stderr)
+                    return 1
+                shows = discover_dump_shows(
+                    dump, project_root=project_root, work_dir=work_dir
+                )
+                return run_review_session(
+                    shows=shows,
+                    project_root=project_root,
+                    approved_by=args.approved_by,
+                    artist=args.artist,
+                    date=args.date,
+                    tracker=args.tracker,
+                    venue=args.venue,
+                    city=args.city,
+                    state=args.state,
+                    source_override=args.source,
+                    dump_first=False,
+                    work_dir=work_dir,
+                    dump_root=dump,
+                    prompt_defaults=prompt_defaults,
+                )
             return run_review_session(
-                shows=shows,
+                shows=[],
                 project_root=project_root,
                 approved_by=args.approved_by,
                 artist=args.artist,
@@ -290,6 +330,10 @@ def main(argv: list[str] | None = None) -> int:
                 city=args.city,
                 state=args.state,
                 source_override=args.source,
+                dump_first=True,
+                initial_dump_root=None,
+                work_dir=work_dir,
+                prompt_defaults=prompt_defaults,
             )
 
     assert plan_path is not None
