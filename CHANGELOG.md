@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Keep the detail waveform locked to the hearing loop during playback and only move the cyan cursor (~40 Hz) so scrubbing looks smooth.
 - Allow clicking empty waveform space to place the cyan playhead (Space plays/pauses from there to end of show; ``l`` still loops the selected cut); long play-to-end follows the cursor in the detail window.
 - Place the cyan playhead at the cut loop-window start when clicking a yellow cut marker.
+- Move the cyan playhead to the cut loop-window start when stepping cuts with ``[`` / ``]``.
 - Select the matching cut and move the cyan playhead to a track's start when highlighting/clicking a row in the track list.
 - Extract review package metadata (venue, city, state, transferer, …) from companion info ``.txt`` files and nearby filenames via a text Gemini pass, with the heuristic Jon-style parser as offline fallback.
 - Split companion lineages into Jon-style ``source`` (capture) and ``transfer`` (digitize/encode) fields, including labeled ``Source:`` / ``Transfer:`` lines in the heuristic parser.

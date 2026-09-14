@@ -269,6 +269,8 @@ def test_review_app_select_cut_and_nudge_with_arrows():
             review._select_cut(1, status_prefix="Selected cut")
             await pilot.pause()
             assert review.selected_cut_index == 1
+            # Same default as clicking a yellow cut: loop-window start (~8s before).
+            assert review._playhead == pytest.approx(32.0)
             before = float(review.plan["cuts_sec"][1])
             review.query_one("#overview").focus()
             await pilot.pause()
@@ -276,5 +278,9 @@ def test_review_app_select_cut_and_nudge_with_arrows():
             await pilot.pause()
             after = float(review.plan["cuts_sec"][1])
             assert after == pytest.approx(before + 0.1)
+            await pilot.press("]")
+            await pilot.pause()
+            assert review.selected_cut_index == 2
+            assert review._playhead == pytest.approx(92.0)  # 100 - 8
 
     asyncio.run(run())

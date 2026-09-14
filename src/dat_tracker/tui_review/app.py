@@ -622,13 +622,6 @@ class ReviewScreen(Screen[int]):
 
     @on(WaveformView.CutMarkerClicked)
     def _cut_marker_clicked(self, event: WaveformView.CutMarkerClicked) -> None:
-        # Place playhead at the default loop-window start for this cut.
-        if self._player.is_playing:
-            self._player.stop()
-            self._stop_play_ui()
-        self._playhead = playhead_for_cut(
-            float(event.time_sec), duration_sec=self._show_duration_sec()
-        )
         self._select_cut(event.cut_index, status_prefix="Selected cut")
 
     @on(WaveformView.SeekClicked)
@@ -664,6 +657,13 @@ class ReviewScreen(Screen[int]):
         # Sync track table to the track that begins at this cut (or previous).
         tracks = self.plan.get("tracks") or []
         t = cuts[self.selected_cut_index]
+        if self._player.is_playing:
+            self._player.stop()
+            self._stop_play_ui()
+        # Match yellow-cut click: playhead at the default loop-window start.
+        self._playhead = playhead_for_cut(
+            float(t), duration_sec=self._show_duration_sec()
+        )
         if tracks:
             self.selected_track_index = min(
                 tracks,
