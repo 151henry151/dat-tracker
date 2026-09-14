@@ -51,6 +51,14 @@ from dat_tracker.waveform import load_or_build_envelope
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+def _format_hear_clock(sec: float) -> str:
+    """Show minutes:seconds.tenths for the live hearing cursor."""
+    sec = max(0.0, float(sec))
+    m = int(sec // 60)
+    s = sec % 60.0
+    return f"{m}:{s:04.1f}"
+
+
 class ReviewApp(App[int]):
     """Required review gate UI with Accept-all fast path."""
 
@@ -149,6 +157,7 @@ class ReviewApp(App[int]):
         self._envelope: dict[str, Any] | None = None
         self._player = AudioPlayer()
         self._playhead: float | None = None
+        self._play_timer = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -265,10 +274,19 @@ class ReviewApp(App[int]):
             overview.peaks = []
             overview.refresh()
             return
-        overview.label = (
-            "overview — click a yellow cut, then ←/→ (±0.1s) "
-            "([ / ] select; shift←/→ ±1s)"
-        )
+        hearing = self._player.hearing_window
+        playing = self._player.is_playing and hearing is not None
+        if playing and hearing is not None and self._playhead is not None:
+            overview.label = (
+                f"overview — HEARING {_format_hear_clock(self._playhead)}  "
+                f"(loop {_format_hear_clock(hearing[0])}–"
+                f"{_format_hear_clock(hearing[1])}; cyan ▶)"
+            )
+        else:
+            overview.label = (
+                "overview — click a yellow cut, then ←/→ (±0.1s) "
+                "([ / ] select; shift←/→ ±1s)"
+            )
         overview.set_envelope(self._envelope)
         overview.absolute_markers = cuts
         overview.markers_sec = cuts
@@ -279,17 +297,91 @@ class ReviewApp(App[int]):
             else None
         )
         overview.selected_marker_sec = selected
-        center = selected if selected is not None else 0.0
-        window = detail.set_detail(
-            self._envelope,
-            center_sec=center,
-            half_window_sec=20.0,
-            markers_sec=cuts,
-            playhead_sec=self._playhead,
-            selected_marker_sec=selected,
-        )
-        overview.viewport_sec = window
+        if playing and hearing is not None:
+            # Lock detail to the audible loop so only the cyan cursor moves.
+            hear_start, hear_end = hearing
+            center = (hear_start + hear_end) / 2.0
+            half = max(0.5, (hear_end - hear_start) / 2.0)
+            window = detail.set_detail(
+                self._envelope,
+                center_sec=center,
+                half_window_sec=half,
+                markers_sec=cuts,
+                playhead_sec=self._playhead,
+                selected_marker_sec=selected,
+            )
+            overview.viewport_sec = hearing
+        else:
+            center = selected if selected is not None else 0.0
+            window = detail.set_detail(
+                self._envelope,
+                center_sec=center,
+                half_window_sec=20.0,
+                markers_sec=cuts,
+                playhead_sec=self._playhead,
+                selected_marker_sec=selected,
+            )
+            overview.viewport_sec = window
         overview.refresh()
+
+    def _refresh_playhead_only(self) -> None:
+        """Move the cyan cursor without rebuilding waveform envelopes."""
+        overview = self.query_one("#overview", WaveformView)
+        detail = self.query_one("#detail", DetailWaveformView)
+        overview.playhead_sec = self._playhead
+        if self._playhead is not None:
+            detail.playhead_sec = float(self._playhead) - float(
+                detail.window_start_sec
+            )
+            detail.absolute_playhead = self._playhead
+        else:
+            detail.playhead_sec = None
+            detail.absolute_playhead = None
+        if self._playhead is not None:
+            hearing = self._player.hearing_window
+            if hearing is not None:
+                overview.label = (
+                    f"overview — HEARING {_format_hear_clock(self._playhead)}  "
+                    f"(loop {_format_hear_clock(hearing[0])}–"
+                    f"{_format_hear_clock(hearing[1])}; cyan ▶)"
+                )
+        overview.refresh()
+        detail.refresh()
+
+    def _start_play_ui(self) -> None:
+        self._stop_play_ui()
+        # Full layout once, then light cursor ticks (~40 Hz).
+        self._refresh_waveforms()
+        self._play_timer = self.set_interval(0.025, self._on_play_tick)
+
+    def _stop_play_ui(self) -> None:
+        if self._play_timer is not None:
+            self._play_timer.stop()
+            self._play_timer = None
+
+    def _on_play_tick(self) -> None:
+        err = self._player.last_error
+        if err:
+            self._stop_play_ui()
+            self._set_status(f"Playback error: {err}")
+            self._refresh_waveforms()
+            return
+        if not self._player.is_playing:
+            self._stop_play_ui()
+            self._set_status("Playback finished")
+            self._refresh_waveforms()
+            return
+        pos = self._player.current_position_sec()
+        if pos is not None:
+            self._playhead = pos
+        hearing = self._player.hearing_window
+        self._refresh_playhead_only()
+        if hearing is not None and pos is not None:
+            self._set_status(
+                f"Hearing {_format_hear_clock(pos)}  "
+                f"loop {_format_hear_clock(hearing[0])}–"
+                f"{_format_hear_clock(hearing[1])}  (space stop)"
+            )
 
     def _sync_track_editors(self) -> None:
         tracks = self.plan.get("tracks") or []
@@ -433,6 +525,7 @@ class ReviewApp(App[int]):
         )
 
     def action_accept_all(self) -> None:
+        self._stop_play_ui()
         self._player.stop()
         self._collect_package_from_inputs()
         approved = approve_plan(
@@ -446,6 +539,7 @@ class ReviewApp(App[int]):
         self.exit(self.exit_code)
 
     def action_save_approve(self) -> None:
+        self._stop_play_ui()
         self._player.stop()
         self._collect_package_from_inputs()
         self._apply_track_editors()
@@ -461,6 +555,8 @@ class ReviewApp(App[int]):
 
     def action_reset_llm(self) -> None:
         """Restore cuts/tracks from the as-delivered LLM snapshot; keep package."""
+        self._stop_play_ui()
+        self._player.stop()
         try:
             delivered = require_as_delivered(self.plan_path)
         except FileNotFoundError as exc:
@@ -485,6 +581,7 @@ class ReviewApp(App[int]):
         )
 
     def action_quit_pending(self) -> None:
+        self._stop_play_ui()
         self._player.stop()
         if self.dirty:
             self._collect_package_from_inputs()
@@ -562,7 +659,9 @@ class ReviewApp(App[int]):
     def action_toggle_play(self) -> None:
         if self._player.is_playing:
             self._player.stop()
+            self._stop_play_ui()
             self._set_status("Stopped")
+            self._refresh_waveforms()
             return
         self.action_loop_cut()
 
@@ -578,12 +677,37 @@ class ReviewApp(App[int]):
         start, end = loop_window_around_cut(
             cut, duration_sec=duration, half_window_sec=8.0
         )
-        self._playhead = cut
+        self._playhead = start
         self._player.play_segment(
             self.source_audio, start_sec=start, end_sec=end, loop=True
         )
-        self._refresh_waveforms()
-        self._set_status(f"Looping {start:.1f}–{end:.1f}s")
+        self._start_play_ui()
+        self._set_status(
+            f"Hearing {_format_hear_clock(start)}  "
+            f"loop {_format_hear_clock(start)}–{_format_hear_clock(end)}  "
+            "(space stop)"
+        )
+
+    def _report_playback_status(self) -> None:
+        err = self._player.last_error
+        if err:
+            self._stop_play_ui()
+            self._set_status(f"Playback error: {err}")
+            return
+        if self._player.is_playing:
+            pos = self._player.current_position_sec() or self._playhead or 0.0
+            hearing = self._player.hearing_window
+            if hearing is not None:
+                self._set_status(
+                    f"Hearing {_format_hear_clock(pos)}  "
+                    f"loop {_format_hear_clock(hearing[0])}–"
+                    f"{_format_hear_clock(hearing[1])}  (space stop)"
+                )
+            else:
+                self._set_status("Playing — space to stop")
+        else:
+            self._stop_play_ui()
+            self._set_status("Playback finished")
 
     def action_seek(self, delta: float) -> None:
         cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
@@ -603,15 +727,18 @@ class ReviewApp(App[int]):
                 end_sec=min(float(self.plan["duration_sec"]), self._playhead + 3.0),
                 loop=False,
             )
+            self._start_play_ui()
         self._refresh_waveforms()
-        self._set_status(f"Seek {self._playhead:.3f}s")
+        self._set_status(f"Hearing {_format_hear_clock(self._playhead)}")
 
     def action_seek_back(self) -> None:
         self.action_seek(-2.0)
 
     def action_seek_forward(self) -> None:
         self.action_seek(2.0)
+
     def on_unmount(self) -> None:
+        self._stop_play_ui()
         self._player.stop()
 
 

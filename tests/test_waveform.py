@@ -119,6 +119,8 @@ def test_render_envelope_panel_viewport_and_playhead():
     v1 = marker_column(75.0, duration_sec=100.0, width=20)
     assert meta["viewport_cols"] == (v0, v1)
     ph = marker_column(50.0, duration_sec=100.0, width=20)
+    # Full-height playhead column (not a single mid-row tip).
+    assert all(row[ph] in {"▶", "┃"} for row in grid)
     assert any(row[ph] == "▶" for row in grid)
 
 

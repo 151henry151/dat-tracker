@@ -366,7 +366,8 @@ def render_envelope_panel(
     if playhead_sec is not None:
         col = marker_column(float(playhead_sec), duration_sec=dur, width=width)
         mid = height // 2
-        grid[mid][col] = "▶"
+        for y in range(height):
+            grid[y][col] = "▶" if y == mid else "┃"
 
     meta = {"viewport_cols": viewport_cols}
     if return_grid and return_meta:

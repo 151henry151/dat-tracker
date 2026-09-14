@@ -23,8 +23,8 @@ def waveform_glyph_style(ch: str) -> str | None:
         return "bold reverse yellow"
     if ch == "|":
         return "bold yellow"
-    if ch == "▶":
-        return "bold cyan"
+    if ch == "▶" or ch == "┃":
+        return "bold reverse cyan"
     # Silence baseline · matches braille amplitude dots (not cyan).
     if ch == "·" or ("\u2800" <= ch <= "\u28ff"):
         return "bright_white"

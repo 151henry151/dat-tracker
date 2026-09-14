@@ -148,11 +148,23 @@ def hydrate_plan_from_notes(plan: dict[str, Any]) -> dict[str, Any]:
             track["title"] = titles[0]
             changed = True
 
-        if track_type == "unknown":
+        # Infer type for unknown tracks. Also allow correcting a prior weak
+        # hydrate that stamped a blank long span as song when notes later
+        # (or with a better parser) show banter — but do not fight a titled song.
+        evidence = list(track.get("evidence") or [])
+        weak_blank_song = (
+            track_type == "song"
+            and not track.get("title")
+            and not titles
+            and "hydrated_from_notes" in evidence
+        )
+        if track_type == "unknown" or weak_blank_song:
             if banter_hits > 0 and not titles:
                 track["track_type"] = "banter"
                 changed = True
-            elif titles or (end - start) >= 60.0:
+            elif track_type == "unknown" and (
+                titles or (end - start) >= 60.0
+            ):
                 track["track_type"] = "song"
                 changed = True
             track_type = str(track.get("track_type") or "unknown")

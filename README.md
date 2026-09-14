@@ -256,7 +256,7 @@ What that install does:
 - `.[asr]` pulls in **faster-whisper** for local speech islands (recommended for tracking).
 - Core deps including **`internetarchive`**, **`google-genai`**, and **`jsonschema`** come in automatically.
 
-Optional: `pip install -e ".[dev]"` if you also want **pytest** (see Development below). For the review TUI and Accept-all packaging path, install **`[review]`** (needs PortAudio for playback — e.g. `portaudio19-dev` on Debian/Ubuntu, `brew install portaudio` on macOS):
+Optional: `pip install -e ".[dev]"` if you also want **pytest** (see Development below). For the review TUI and Accept-all packaging path, install **`[review]`**. Playback uses **`ffplay`** from the ffmpeg package (already required); PortAudio/`sounddevice` is only a fallback if `ffplay` is missing:
 
 ```bash
 pip install -e ".[asr,review]"

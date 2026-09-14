@@ -20,7 +20,8 @@ from dat_tracker.tui_review.widgets.waveform import waveform_glyph_style
 def test_silence_baseline_matches_braille_glyph_color():
     assert waveform_glyph_style("·") == waveform_glyph_style("⣿")
     assert waveform_glyph_style("·") == "bright_white"
-    assert waveform_glyph_style("▶") == "bold cyan"
+    assert waveform_glyph_style("▶") == "bold reverse cyan"
+    assert waveform_glyph_style("┃") == "bold reverse cyan"
 
 
 def test_format_track_rows():

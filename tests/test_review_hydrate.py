@@ -118,6 +118,17 @@ def test_hydrate_parses_legacy_time_first_notes():
     assert out["tracks"][3]["title"] == "Sailing Shoes / Cocaine Blues"
 
 
+def test_hydrate_retypes_blank_song_to_banter_from_notes():
+    """Prior hydrate stamped long blanks as song; reopen should still learn banter."""
+    plan = _sbb_like_plan()
+    plan["tracks"][2]["track_type"] = "song"
+    plan["tracks"][2]["title"] = None
+    plan["tracks"][2]["evidence"] = ["hydrated_from_notes"]
+    out = hydrate_plan_from_notes(plan)
+    assert out["tracks"][2]["track_type"] == "banter"
+    assert out["tracks"][2]["title"] == "Banter"
+
+
 def test_hydrate_does_not_title_banter_from_song_notes():
     plan = _sbb_like_plan()
     plan["tracks"][0]["track_type"] = "song"
