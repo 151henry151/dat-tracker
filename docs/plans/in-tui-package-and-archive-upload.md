@@ -1,8 +1,8 @@
-# Deferred: in-TUI package and Archive.org upload
+# In-TUI package and Archive.org upload
 
-**Status:** implemented in-tree (package pipeline + IA upload module + post-approve TUI screens). Keep this file as the design note; prefer README + [`docs/upload-checklist.md`](../upload-checklist.md) for operators.
+**Status:** **implemented** (package pipeline + IA upload module + post-approve TUI screens). This file is the design note; prefer README + [`docs/upload-checklist.md`](../upload-checklist.md) for operators.
 
-**Cursor plan file (may also exist locally):** `.cursor/plans/tui_package_and_upload_bd3d7d2b.plan.md` (or under `~/.cursor/plans/`).
+**Related Cursor plan revisions** (also under [`docs/plans/`](.)): `tui-package-upload.md`.
 
 ## Overview
 

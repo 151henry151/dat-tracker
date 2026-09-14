@@ -17,8 +17,8 @@ You do **not** need to install Python or clone this repository to try the app. U
 1. Open **[Releases](https://github.com/151henry151/dat-tracker/releases)**.
 2. Download the binary for your computer:
    - **Linux:** `dat-review-linux-x86_64`
-   - **Windows:** `dat-review-windows-x86_64.exe` *(when attached to the release)*
-   - **macOS (Apple Silicon):** `dat-review-macos-arm64` *(when attached to the release)*
+   - **Windows:** `dat-review-windows-x86_64.exe`
+   - **macOS (Apple Silicon):** `dat-review-macos-arm64`
 3. Put it somewhere convenient (Desktop, Downloads, or a tools folder).
 
 **Linux / macOS:** make it executable once, then run it from a terminal:
@@ -34,7 +34,7 @@ chmod +x dat-review-linux-x86_64   # or dat-review-macos-arm64
 .\dat-review-windows-x86_64.exe
 ```
 
-If Windows or macOS binaries are not on the latest release yet, use [Install from source](#install-from-source-developers) below, or check back on the Releases page.
+If a binary for your OS is missing from the latest release, use [Install from source](#install-from-source-developers) below, or check back on the Releases page.
 
 ### 2. Get a Gemini API key (free to create)
 
@@ -255,7 +255,7 @@ Tune on **train**, not holdout. Numbers move as plans are regenerated.
 5. **Batch Live Bluegrass `todo`** and Archive.org upload only after held-out gates pass.
 6. **Phase 2b / 5** — broader DAT corpus RAG / optional specialist models; installable config for other dumps (locked goal in PLAN.md).
 
-See [CHANGELOG.md](CHANGELOG.md) and [PLAN.md](PLAN.md) for locked decisions and detailed phases.
+See [CHANGELOG.md](CHANGELOG.md), [PLAN.md](PLAN.md), and the [docs index](docs/README.md) for locked decisions, phases, and archived plans.
 
 ---
 
@@ -386,7 +386,7 @@ Maintainers and agents: follow **[PLAN.md](PLAN.md)** and **[AGENTS.md](AGENTS.m
 | `scripts/` | Download, score, track utilities |
 | `catalog/` | Show inventory / calibration manifests |
 | `data/` | Local media (gitignored): raw, work, out |
-| `docs/` | Extra notes (upload checklist, baselines, screenshots, …) |
+| `docs/` | Extra notes (upload checklist, baselines, screenshots, archived plans/canvases — see `docs/README.md`) |
 | `docs/screenshots/` | README product screenshots |
 | `tests/` | Pytest suite |
 | `packaging/` | PyInstaller build for release binaries |
@@ -396,3 +396,7 @@ Maintainers and agents: follow **[PLAN.md](PLAN.md)** and **[AGENTS.md](AGENTS.m
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Contributing and feedback
+
+Want to help, or run into a bug? See **[CONTRIBUTING.md](CONTRIBUTING.md)** (TDD, forks/PRs, changelog under Unreleased, and how [PLAN.md](PLAN.md) fits in). You can also [open an issue](https://github.com/151henry151/dat-tracker/issues) or email **151henry151@gmail.com** with feedback, suggestions, or problem reports.

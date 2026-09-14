@@ -9,3 +9,4 @@
 7. Prefer automatic LLM tracking; packaging requires the review gate (`dat-review` / Accept-all). Treat weak calibration metrics as a pipeline bug to fix.
 8. Do not tune only on Live Bluegrass / Jon’s 15 packages—use held-out external tracked DAT calibration (see PLAN.md tiers) to avoid overfitting.
 9. When drafting Reddit/email text for the community, leave posting to the maintainer unless they explicitly ask you to send it.
+10. Historical Cursor plans, canvases, and session handoffs live under **[docs/](docs/README.md)**; prefer PLAN.md + current code when they disagree.

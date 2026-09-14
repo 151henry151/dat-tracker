@@ -7,11 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add ``CONTRIBUTING.md`` with TDD, PR, and changelog guidance for external
+  contributors.
+
 ### Changed
 
+- Refresh operator docs for current dump metadata / J-card seeding and for
+  Windows and macOS release binaries on ``v0.1.1``.
+- Archive Cursor design plans, the quality-diagnosis canvas, and the
+  2026-09-09 calibration handoff under ``docs/`` (see ``docs/README.md``).
 - Restore the longer README background (problem survey, approach, status, roadmap)
   below the end-user try-out section, and add product screenshots under
   ``docs/screenshots/``.
+- Link contributing and feedback (issues / email) at the end of the README.
 
 ## [0.1.1] - 2026-09-14
 

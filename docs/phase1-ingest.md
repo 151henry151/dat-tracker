@@ -19,7 +19,7 @@
   - Always pulls Dave Ward / Brian H subject search from Archive.org
   - When the Dropbox zip is complete, also inventories FLAC paths via `unzip -l` and merges `todo` vs `already_uploaded`
 - Dump filenames are mostly `YYMMDD_ABBREV…flac` or `YYYYMMDD_…flac` (not ISO dates in the name); multipart discs (`_1`/`_2`) coalesce to one catalog row
-- J-card photo OCR is deferred; path/filename parsing covers the first inventory pass
+- Package seeding (review prepare / tracking): path and filename heuristics fill date/artist/venue/collection; sibling J-card photos can be read with Gemini vision when present (see `dump_metadata.py` / `jcard_extract.py`). Catalog build itself still uses path/filename + IA merge, not bulk J-card OCR.
 - Calibration note: `prtr2002-08-02` is on IA but no matching raw FLAC was found in the zip listing
 
 ## Ground-truth boundaries

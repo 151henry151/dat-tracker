@@ -6,7 +6,7 @@ Operator path after tracking: **review → package → confirm → upload**. Pac
 
 1. Install review extras (TUI + audio): `pip install -e ".[review]"` (or your usual install).
 2. Archive.org login happens **inside `dat-review`** on the upload confirm screen (Log in / `l`, or Upload will prompt if you are not logged in). That uses your archive.org email + password and writes the same local config as `ia configure`. You can still run `ia configure` in a terminal if you prefer.
-3. Gemini API key for tracking / companion hydrate — see README (“Configure your Gemini API key”). Not required for the upload step itself.
+3. Gemini API key for tracking / companion hydrate — see README ([Try it out](../README.md#try-it-out-recommended) / [Gemini API key details](../README.md#gemini-api-key-details)). Not required for the upload step itself.
 
 ## Per show
 
