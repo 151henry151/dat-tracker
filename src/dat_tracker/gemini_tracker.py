@@ -68,6 +68,42 @@ def resolve_gemini_api_key(*, project_root: Path | None = None) -> str:
     return key
 
 
+def gemini_api_key_is_configured(*, project_root: Path | None = None) -> bool:
+    """True when GEMINI_API_KEY or GOOGLE_API_KEY is set in the env or project .env."""
+    try:
+        return bool(resolve_gemini_api_key(project_root=project_root).strip())
+    except RuntimeError:
+        return False
+
+
+def save_gemini_api_key(api_key: str, *, project_root: Path | None = None) -> Path:
+    """Write GEMINI_API_KEY into the project ``.env`` (create or update)."""
+    root = Path(project_root) if project_root is not None else Path.cwd()
+    path = root / ".env"
+    key = api_key.strip()
+    if not key:
+        raise ValueError("API key must not be empty")
+
+    lines: list[str] = []
+    found = False
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("GEMINI_API_KEY="):
+                lines.append(f"GEMINI_API_KEY={key}")
+                found = True
+            else:
+                lines.append(line)
+    if not found:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"GEMINI_API_KEY={key}")
+    path.write_text("\n".join(lines).rstrip() + "\n")
+    # So the current process can track without re-reading only .env later.
+    os.environ["GEMINI_API_KEY"] = key
+    return path
+
+
 def resolve_gemini_model(*, project_root: Path | None = None) -> str:
     model = os.environ.get("DAT_TRACKER_LLM_MODEL")
     if model:

@@ -296,6 +296,10 @@ You do **not** need a separate “Google Cloud project tour,” Vertex AI setup,
 
 #### Put the key in `.env`
 
+On first `dat-review` launch, if no key is found, the TUI asks you to paste one (saved to this project's gitignored `.env`). You can skip, but tracking will not work until a key is set.
+
+Or set it manually:
+
 **macOS / Linux:**
 
 ```bash

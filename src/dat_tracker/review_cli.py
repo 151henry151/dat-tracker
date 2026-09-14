@@ -230,9 +230,9 @@ def main(argv: list[str] | None = None) -> int:
         print("Saved operator defaults." if saved else "Skipped.", file=sys.stderr)
         return 0 if saved else 1
 
-    # Defaults (when missing) are prompted inside ReviewSessionApp so the
-    # operator never leaves the TUI between setup and dump/review.
+    # Defaults + Gemini key (when missing) are prompted inside ReviewSessionApp.
     prompt_defaults = not args.skip_defaults_prompt
+    prompt_gemini_key = not args.skip_defaults_prompt
 
     plan_path: Path | None = args.plan
     source_from_show: Path | None = None
@@ -290,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
                     dump_first=False,
                     work_dir=work_dir,
                     prompt_defaults=prompt_defaults,
+                    prompt_gemini_key=prompt_gemini_key,
                 )
             if args.dump_root is not None:
                 from dat_tracker.dump_discover import discover_dump_shows
@@ -318,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
                     work_dir=work_dir,
                     dump_root=dump,
                     prompt_defaults=prompt_defaults,
+                    prompt_gemini_key=prompt_gemini_key,
                 )
             return run_review_session(
                 shows=[],
@@ -334,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                 initial_dump_root=None,
                 work_dir=work_dir,
                 prompt_defaults=prompt_defaults,
+                prompt_gemini_key=prompt_gemini_key,
             )
 
     assert plan_path is not None

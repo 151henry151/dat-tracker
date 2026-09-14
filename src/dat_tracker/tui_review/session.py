@@ -258,6 +258,7 @@ class ReviewSessionApp(App[int]):
         work_dir: Path | None = None,
         dump_root: Path | None = None,
         prompt_defaults: bool = False,
+        prompt_gemini_key: bool = False,
     ) -> None:
         super().__init__()
         self.shows = list(shows)
@@ -275,23 +276,44 @@ class ReviewSessionApp(App[int]):
         self.work_dir = work_dir
         self.dump_root = dump_root
         self.prompt_defaults = prompt_defaults
+        self.prompt_gemini_key = prompt_gemini_key
         self.exit_code = 1
 
     def on_mount(self) -> None:
+        self._continue_first_run_prompts()
+
+    def _continue_first_run_prompts(self) -> None:
         if self.prompt_defaults:
             from dat_tracker.review_defaults import defaults_are_configured
             from dat_tracker.tui_review.defaults_setup import DefaultsSetupScreen
 
             if not defaults_are_configured(project_root=self.project_root):
+                self.prompt_defaults = False
                 self.push_screen(
                     DefaultsSetupScreen(project_root=self.project_root),
                     self._on_defaults_done,
                 )
                 return
+            self.prompt_defaults = False
+        if self.prompt_gemini_key:
+            from dat_tracker.gemini_tracker import gemini_api_key_is_configured
+            from dat_tracker.tui_review.gemini_key_setup import GeminiApiKeyScreen
+
+            if not gemini_api_key_is_configured(project_root=self.project_root):
+                self.prompt_gemini_key = False
+                self.push_screen(
+                    GeminiApiKeyScreen(project_root=self.project_root),
+                    self._on_gemini_key_done,
+                )
+                return
+            self.prompt_gemini_key = False
         self._open_entry_screen()
 
     def _on_defaults_done(self, _saved: bool | None) -> None:
-        self._open_entry_screen()
+        self._continue_first_run_prompts()
+
+    def _on_gemini_key_done(self, _saved: bool | None) -> None:
+        self._continue_first_run_prompts()
 
     def _open_entry_screen(self) -> None:
         if self.dump_first:
@@ -507,6 +529,7 @@ def run_review_session(
     work_dir: Path | None = None,
     dump_root: Path | None = None,
     prompt_defaults: bool = False,
+    prompt_gemini_key: bool = False,
 ) -> int:
     app = ReviewSessionApp(
         shows=list(shows or []),
@@ -524,6 +547,7 @@ def run_review_session(
         work_dir=work_dir,
         dump_root=dump_root,
         prompt_defaults=prompt_defaults,
+        prompt_gemini_key=prompt_gemini_key,
     )
     result = app.run()
     if isinstance(result, int):
