@@ -10,7 +10,7 @@ The everyday tool is **`dat-review`**: a terminal app that walks you from “her
 
 ## Try it out (recommended)
 
-You do **not** need to install Python or clone this repository to try the app. Use a release binary, install **ffmpeg**, get a free **Gemini API key**, then run `dat-review`.
+You do **not** need to install Python or clone this repository to try the app. Use a release binary, get a free **Gemini API key**, then run `dat-review`. (Release builds ship with ffmpeg tools bundled.)
 
 ### 1. Download `dat-review`
 
@@ -36,26 +36,7 @@ chmod +x dat-review-linux-x86_64   # or dat-review-macos-arm64
 
 If Windows or macOS binaries are not on the latest release yet, use [Install from source](#install-from-source-developers) below, or check back on the Releases page.
 
-### 2. Install ffmpeg (required)
-
-`dat-review` needs **ffmpeg** (and **ffprobe** / **ffplay**, which normally come with it) on your system `PATH`.
-
-| OS | Simple install |
-|----|----------------|
-| **Windows** | `winget install --id Gyan.FFmpeg` — or [Chocolatey](https://chocolatey.org/) `choco install ffmpeg` — or a build from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) |
-| **macOS** | Install [Homebrew](https://brew.sh/), then `brew install ffmpeg` |
-| **Linux (Debian/Ubuntu)** | `sudo apt update && sudo apt install -y ffmpeg` |
-
-Check that it works:
-
-```bash
-ffmpeg -version
-ffprobe -version
-```
-
-You should see a version line, not “command not found”.
-
-### 3. Get a Gemini API key (free to create)
+### 2. Get a Gemini API key (free to create)
 
 Tracking listens to short audio clips with Google’s **Gemini** API.
 
@@ -66,7 +47,7 @@ On first launch, `dat-review` can ask you to paste the key and save it for next 
 
 A Free Tier key is enough to try the app. Long shows use several API requests; free daily limits are low — for many shows per day you may need billing in AI Studio. [Billing](https://ai.google.dev/gemini-api/docs/billing) · [pricing](https://ai.google.dev/gemini-api/docs/pricing).
 
-### 4. Run it on your FLACs
+### 3. Run it on your FLACs
 
 1. Start `dat-review` (see step 1).
 2. If asked, enter your **tracker name** (how you want to be credited) and paste your **Gemini API key**.
@@ -148,9 +129,17 @@ Use this if you are changing the code, or if a binary for your OS is not availab
 ### Prerequisites
 
 - **Python 3.11+**
-- **ffmpeg** / **ffprobe** / **ffplay** on `PATH`
+- **ffmpeg** / **ffprobe** / **ffplay** on `PATH` (release binaries bundle these; source installs do not)
 - **Git** (recommended)
 - **Gemini API key** (as above)
+
+Install ffmpeg for source/dev work:
+
+| OS | Simple install |
+|----|----------------|
+| **Windows** | `winget install --id Gyan.FFmpeg` or `choco install ffmpeg` |
+| **macOS** | `brew install ffmpeg` |
+| **Linux (Debian/Ubuntu)** | `sudo apt install -y ffmpeg` |
 
 ### Clone and install
 

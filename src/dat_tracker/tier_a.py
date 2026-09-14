@@ -13,6 +13,7 @@ from dat_tracker.boundaries import (
     probe_duration_seconds,
     reference_cuts_from_ground_truth_dir,
 )
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
 
 
 def tier_a_known_cuts_from_reference(reference_cuts: list[float]) -> list[float]:
@@ -74,7 +75,7 @@ def prepare_tier_a_continuous(
     # Lossless copy of the span (re-encode flac from decoded PCM slice).
     subprocess.run(
         [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-y",
             "-ss",
             f"{start:.3f}",

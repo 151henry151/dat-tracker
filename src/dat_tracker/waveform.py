@@ -10,6 +10,8 @@ from typing import Any
 
 import numpy as np
 
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
+
 # Vertical braille-ish blocks from quiet → loud (single-column).
 _BLOCKS = " ▁▂▃▄▅▆▇█"
 
@@ -21,7 +23,7 @@ def _decode_mono_float32(audio_path: Path, *, sample_rate: int = 8000) -> np.nda
     try:
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_bin(),
                 "-y",
                 "-i",
                 str(audio_path),

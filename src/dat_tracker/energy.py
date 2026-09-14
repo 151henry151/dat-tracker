@@ -7,6 +7,8 @@ import struct
 import subprocess
 from pathlib import Path
 
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
+
 
 def frame_rms_from_pcm(pcm: bytes, *, hop: int = 2000) -> list[float]:
     """RMS per hop of little-endian int16 mono PCM."""
@@ -98,7 +100,7 @@ def extract_mono_pcm(
 ) -> bytes:
     """Decode mono s16le PCM via ffmpeg for analysis."""
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-hide_banner",
         "-loglevel",
         "error",

@@ -7,6 +7,8 @@ cd "$ROOT"
 uv sync --extra review --extra asr --extra dev
 uv pip install "pyinstaller>=6.0"
 
+bash packaging/fetch_ffmpeg.sh
+
 rm -rf build/pyinstaller dist/pyinstaller
 mkdir -p dist/pyinstaller
 

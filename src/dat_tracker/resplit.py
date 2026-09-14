@@ -10,6 +10,7 @@ from dat_tracker.boundaries import (
     list_track_flacs,
     probe_duration_seconds,
 )
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
 
 
 def known_cuts_from_track_dir(directory: Path) -> tuple[list[float], list[Path]]:
@@ -60,7 +61,7 @@ def concatenate_tracks_lossless(
     build_concat_list_file(tracks, list_path)
     subprocess.run(
         [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
             "error",

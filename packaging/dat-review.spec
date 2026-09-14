@@ -3,13 +3,29 @@
 
 from __future__ import annotations
 
-import sys
+import platform
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files
 
 block_cipher = None
 root = Path(SPECPATH).resolve().parent
+
+
+def _ffmpeg_platform_dir() -> Path | None:
+    system = platform.system()
+    machine = platform.machine().lower()
+    if system == "Linux":
+        key = "linux-x86_64"
+    elif system == "Darwin":
+        key = "macos-arm64" if machine in ("arm64", "aarch64") else "macos-x86_64"
+    elif system == "Windows":
+        key = "windows-x86_64"
+    else:
+        return None
+    path = root / "packaging" / "ffmpeg" / key
+    return path if path.is_dir() else None
+
 
 datas = []
 binaries = []
@@ -19,6 +35,7 @@ hiddenimports = [
     "dat_tracker.tui_review",
     "dat_tracker.tui_review.app",
     "dat_tracker.tui_review.session",
+    "dat_tracker.ffmpeg_tools",
     "textual",
     "textual.widgets",
     "rich",
@@ -51,6 +68,20 @@ datas += [(str(root / "src" / "dat_tracker"), "dat_tracker")]
 # frozen apps still work without them (operator picks a dump directory).
 if (root / "catalog").is_dir():
     datas += [(str(root / "catalog"), "catalog")]
+
+ffmpeg_dir = _ffmpeg_platform_dir()
+if ffmpeg_dir is not None:
+    for tool in ("ffmpeg", "ffprobe", "ffplay"):
+        for candidate in (ffmpeg_dir / tool, ffmpeg_dir / f"{tool}.exe"):
+            if candidate.is_file():
+                binaries.append((str(candidate), "ffmpeg"))
+                break
+    print(f"INFO: Bundling ffmpeg tools from {ffmpeg_dir}")
+else:
+    print(
+        "WARNING: packaging/ffmpeg/<platform>/ missing — "
+        "run packaging/fetch_ffmpeg.sh before release builds"
+    )
 
 a = Analysis(
     [str(root / "src" / "dat_tracker" / "__main__.py")],

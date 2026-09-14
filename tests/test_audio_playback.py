@@ -66,13 +66,16 @@ def test_clamp_play_range():
     assert clamp_play_range(5.0, 5.0, duration_sec=10.0) == (5.0, 5.01)
 
 
-def test_ffplay_segment_command_shape():
+def test_ffplay_segment_command_shape(monkeypatch):
+    monkeypatch.setattr(
+        "dat_tracker.audio_playback.ffplay_bin", lambda: "/usr/bin/ffplay"
+    )
     cmd = ffplay_segment_command(
         Path("/tmp/show.flac"),
         start_sec=12.5,
         end_sec=20.5,
     )
-    assert cmd[0] == "ffplay"
+    assert cmd[0] == "/usr/bin/ffplay"
     assert "-nodisp" in cmd
     assert "-autoexit" in cmd
     assert cmd[cmd.index("-ss") + 1] == "12.500"
@@ -104,7 +107,7 @@ def test_audio_player_uses_ffplay_subprocess():
     fake_proc.returncode = 0
     fake_proc.stderr = None
     fake_proc.wait.return_value = 0
-    with patch("dat_tracker.audio_playback.shutil.which", return_value="/usr/bin/ffplay"):
+    with patch("dat_tracker.audio_playback.ffplay_bin", return_value="/usr/bin/ffplay"):
         with patch(
             "dat_tracker.audio_playback.subprocess.Popen", return_value=fake_proc
         ) as popen:
@@ -118,5 +121,5 @@ def test_audio_player_uses_ffplay_subprocess():
             player._thread.join(timeout=2.0)
     assert popen.called
     cmd = popen.call_args[0][0]
-    assert cmd[0] == "ffplay"
+    assert cmd[0] == "/usr/bin/ffplay"
     assert player.last_error is None

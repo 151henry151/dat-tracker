@@ -48,6 +48,10 @@ Thumbs.db
 *.swp
 *~
 
+# Downloaded static ffmpeg for PyInstaller (keep README only)
+packaging/ffmpeg/**
+!packaging/ffmpeg/README.md
+
 # Secrets
 .env
 .env.*

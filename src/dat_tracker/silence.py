@@ -6,6 +6,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
+
 SILENCE_START_RE = re.compile(r"silence_start:\s*(?P<t>-?\d+(?:\.\d+)?)")
 SILENCE_END_RE = re.compile(r"silence_end:\s*(?P<t>-?\d+(?:\.\d+)?)")
 
@@ -78,7 +80,7 @@ def run_silencedetect(
     filter_arg = f"silencedetect=noise={noise_db}dB:d={min_silence_sec}"
     proc = subprocess.run(
         [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-nostats",
             "-i",

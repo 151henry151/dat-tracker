@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Bundle ``ffmpeg`` / ``ffprobe`` (and ``ffplay`` when available) into
+  ``dat-review`` release builds, and resolve tools via bundled path, env, or
+  ``PATH``.
+
 ### Changed
 
 - Restructure the README so end-user download and try-out steps come first, with
   developer install and background below.
+- Document that GitHub Release binaries no longer require a separate ffmpeg
+  install for end users.
 
 ## [0.1.0] - 2026-09-14
 

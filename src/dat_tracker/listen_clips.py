@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
+
 
 def load_dotenv_file(path: Path) -> dict[str, str]:
     """Parse a simple KEY=VALUE .env file (no export, no interpolation)."""
@@ -131,7 +133,7 @@ def extract_audio_clip(
     duration = max(0.05, float(end_sec) - float(start_sec))
     subprocess.run(
         [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-y",
             "-ss",
             f"{start_sec:.3f}",

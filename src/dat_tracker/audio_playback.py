@@ -6,7 +6,6 @@ device selection does not silently play to HDMI or fail in a worker thread.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -15,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from dat_tracker.ffmpeg_tools import ffmpeg_bin, ffplay_bin
 
 
 def clamp_play_range(
@@ -101,7 +102,7 @@ def ffplay_segment_command(
     )
     duration = max(0.01, end_sec - start_sec)
     return [
-        "ffplay",
+        ffplay_bin(),
         "-nodisp",
         "-autoexit",
         "-loglevel",
@@ -133,7 +134,7 @@ def decode_pcm_segment(
     try:
         subprocess.run(
             [
-                "ffmpeg",
+                ffmpeg_bin(),
                 "-y",
                 "-ss",
                 f"{start_sec:.3f}",
@@ -256,7 +257,12 @@ class AudioPlayer:
         def _run() -> None:
             self._playing = True
             try:
-                if shutil.which("ffplay"):
+                try:
+                    ffplay_bin()
+                    has_ffplay = True
+                except FileNotFoundError:
+                    has_ffplay = False
+                if has_ffplay:
                     self._run_ffplay(audio_path, start_sec, end_sec, loop=loop)
                 else:
                     self._run_sounddevice(

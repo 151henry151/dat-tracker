@@ -52,6 +52,9 @@ def segment_specs_from_plan(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return specs
 
 
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
+
+
 def export_audio_segment(
     source: Path,
     dest: Path,
@@ -66,7 +69,7 @@ def export_audio_segment(
     duration = end_sec - start_sec
     subprocess.run(
         [
-            "ffmpeg",
+            ffmpeg_bin(),
             "-hide_banner",
             "-loglevel",
             "error",

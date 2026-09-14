@@ -8,6 +8,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from dat_tracker.ffmpeg_tools import ffprobe_bin
+
 TRACK_SET_RE = re.compile(r"_[sS](?P<set>\d+)t(?P<st>\d+)", re.IGNORECASE)
 TRACK_DISC_RE = re.compile(r"d(?P<set>\d+)t(?P<st>\d+)", re.IGNORECASE)
 TRACK_AFTER_DATE_RE = re.compile(
@@ -61,7 +63,7 @@ def probe_duration_seconds(path: Path) -> float:
     """Return media duration in seconds via ffprobe."""
     proc = subprocess.run(
         [
-            "ffprobe",
+            ffprobe_bin(),
             "-v",
             "quiet",
             "-print_format",

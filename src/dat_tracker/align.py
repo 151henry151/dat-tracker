@@ -7,6 +7,8 @@ import struct
 import subprocess
 from pathlib import Path
 
+from dat_tracker.ffmpeg_tools import ffmpeg_bin
+
 
 def pcm_energy(pcm: bytes, *, hop: int = 2000) -> list[float]:
     """Mean-square energy per hop of little-endian int16 mono PCM."""
@@ -76,7 +78,7 @@ def extract_pcm_mono(
 ) -> bytes:
     """Decode a mono s16le PCM snippet via ffmpeg."""
     cmd = [
-        "ffmpeg",
+        ffmpeg_bin(),
         "-hide_banner",
         "-loglevel",
         "error",
