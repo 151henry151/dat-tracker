@@ -131,6 +131,7 @@ def run_interactive_review(
             plan=plan,
             source_audio=source,
             approved_by=approved_by,
+            rehydrate=False,
         )
     )
 
@@ -267,9 +268,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
         else:
-            # Interactive picker.
+            # Interactive picker → prepare → review in one Textual process.
             try:
-                from dat_tracker.tui_review.picker import run_show_picker
+                from dat_tracker.tui_review.session import run_review_session
             except ImportError as exc:
                 print(
                     "Show picker requires the optional [review] extras "
@@ -284,15 +285,17 @@ def main(argv: list[str] | None = None) -> int:
             shows = discover_reviewable_shows(
                 project_root=project_root, work_dir=work_dir
             )
-            picked = run_show_picker(shows)
-            if picked is None:
-                return 1
-            plan_path = picked.plan_path
-            source_from_show = picked.source_path
-            print(
-                f"Preparing review for {picked.show_id} "
-                "(titles, package metadata, waveform)…",
-                file=sys.stderr,
+            return run_review_session(
+                shows=shows,
+                project_root=project_root,
+                approved_by=args.approved_by,
+                artist=args.artist,
+                date=args.date,
+                tracker=args.tracker,
+                venue=args.venue,
+                city=args.city,
+                state=args.state,
+                source_override=args.source,
             )
 
     assert plan_path is not None

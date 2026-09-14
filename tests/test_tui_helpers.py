@@ -147,7 +147,7 @@ def test_review_app_package_inputs_receive_seeded_values():
     pytest.importorskip("textual")
     from textual.widgets import Input
 
-    from dat_tracker.tui_review.app import ReviewApp
+    from dat_tracker.tui_review.app import ReviewApp, ReviewScreen
 
     plan = migrate_tracking_plan(
         {
@@ -177,14 +177,18 @@ def test_review_app_package_inputs_receive_seeded_values():
     plan["package"]["date"] = "2001-04-27"
     plan["package"]["venue"] = "Merlefest"
 
-    app = ReviewApp(plan_path=Path("plan.json"), plan=plan, source_audio=None)
+    app = ReviewApp(
+        plan_path=Path("plan.json"), plan=plan, source_audio=None, rehydrate=False
+    )
 
     async def run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            artist = app.query_one("#pkg-artist", Input)
-            date = app.query_one("#pkg-date", Input)
-            venue = app.query_one("#pkg-venue", Input)
+            review = app.screen
+            assert isinstance(review, ReviewScreen)
+            artist = review.query_one("#pkg-artist", Input)
+            date = review.query_one("#pkg-date", Input)
+            venue = review.query_one("#pkg-venue", Input)
             assert artist.value == "Sam Bush"
             assert date.value == "2001-04-27"
             assert venue.value == "Merlefest"
@@ -196,14 +200,14 @@ def test_review_app_package_inputs_receive_seeded_values():
             for _ in range(20):
                 await pilot.press("right")
             await pilot.press("space", "Z")
-            assert "Z" in app.query_one("#pkg-artist", Input).value
+            assert "Z" in review.query_one("#pkg-artist", Input).value
 
     asyncio.run(run())
 
 
 def test_review_app_select_cut_and_nudge_with_arrows():
     pytest.importorskip("textual")
-    from dat_tracker.tui_review.app import ReviewApp
+    from dat_tracker.tui_review.app import ReviewApp, ReviewScreen
 
     plan = migrate_tracking_plan(
         {
@@ -239,20 +243,24 @@ def test_review_app_select_cut_and_nudge_with_arrows():
             "notes": [],
         }
     )
-    app = ReviewApp(plan_path=Path("plan.json"), plan=plan, source_audio=None)
+    app = ReviewApp(
+        plan_path=Path("plan.json"), plan=plan, source_audio=None, rehydrate=False
+    )
 
     async def run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            app._select_cut(1, status_prefix="Selected cut")
+            review = app.screen
+            assert isinstance(review, ReviewScreen)
+            review._select_cut(1, status_prefix="Selected cut")
             await pilot.pause()
-            assert app.selected_cut_index == 1
-            before = float(app.plan["cuts_sec"][1])
-            app.query_one("#overview").focus()
+            assert review.selected_cut_index == 1
+            before = float(review.plan["cuts_sec"][1])
+            review.query_one("#overview").focus()
             await pilot.pause()
             await pilot.press("right")
             await pilot.pause()
-            after = float(app.plan["cuts_sec"][1])
+            after = float(review.plan["cuts_sec"][1])
             assert after == pytest.approx(before + 0.1)
 
     asyncio.run(run())

@@ -10,6 +10,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import Screen
 from textual.widgets import (
     Button,
     DataTable,
@@ -71,7 +72,7 @@ def _format_hear_clock(sec: float) -> str:
     return f"{m}:{s:04.1f}"
 
 
-class ReviewApp(App[int]):
+class ReviewScreen(Screen[int]):
     """Required review gate UI with Accept-all fast path."""
 
     CSS = """
@@ -151,6 +152,7 @@ class ReviewApp(App[int]):
         plan: dict[str, Any],
         source_audio: Path | None = None,
         approved_by: str | None = None,
+        rehydrate: bool = True,
     ) -> None:
         super().__init__()
         self.plan_path = Path(plan_path)
@@ -158,18 +160,19 @@ class ReviewApp(App[int]):
         # Snapshot before hydrate so a first-open legacy dir keeps the
         # on-disk LLM lattice (not titles we fill in-memory).
         ensure_as_delivered_snapshot(self.plan_path, self.plan)
-        self.plan = hydrate_plan_from_notes(self.plan)
-        self.plan = reconcile_track_count_to_published_setlist(
-            self.plan, project_root=_REPO_ROOT
-        )
-        self.plan = hydrate_titles_from_published_setlist(
-            self.plan, project_root=_REPO_ROOT
-        )
-        self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
-        # Known spelling fixes always; Gemini text polish when API key present.
-        self.plan = polish_package_metadata(
-            self.plan, project_root=_REPO_ROOT, use_llm=True
-        )
+        if rehydrate:
+            self.plan = hydrate_plan_from_notes(self.plan)
+            self.plan = reconcile_track_count_to_published_setlist(
+                self.plan, project_root=_REPO_ROOT
+            )
+            self.plan = hydrate_titles_from_published_setlist(
+                self.plan, project_root=_REPO_ROOT
+            )
+            self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
+            # Known spelling fixes always; Gemini text polish when API key present.
+            self.plan = polish_package_metadata(
+                self.plan, project_root=_REPO_ROOT, use_llm=True
+            )
         self.source_audio = Path(source_audio) if source_audio else None
         self.approved_by = approved_by
         self.dirty = False
@@ -661,7 +664,7 @@ class ReviewApp(App[int]):
         self.dirty = False
         self.exit_code = 0
         self._set_status("Approved (accept_all)")
-        self.exit(self.exit_code)
+        self.app.exit(self.exit_code)
 
     def action_save_approve(self) -> None:
         self._stop_play_ui()
@@ -676,7 +679,7 @@ class ReviewApp(App[int]):
         self.dirty = False
         self.exit_code = 0
         self._set_status("Approved (edited)")
-        self.exit(self.exit_code)
+        self.app.exit(self.exit_code)
 
     def action_reset_llm(self) -> None:
         """Restore cuts/tracks from the as-delivered LLM snapshot; keep package."""
@@ -729,7 +732,7 @@ class ReviewApp(App[int]):
             }
             self._write_plan(pending)
         self.exit_code = 1
-        self.exit(self.exit_code)
+        self.app.exit(self.exit_code)
 
     def action_nudge_cut(self, delta: float) -> None:
         cuts = self.plan.get("cuts_sec") or []
@@ -882,18 +885,46 @@ class ReviewApp(App[int]):
         self._player.stop()
 
 
+class ReviewApp(App[int]):
+    """Thin App wrapper so ``dat-review <show>`` and tests push :class:`ReviewScreen`."""
+
+    def __init__(
+        self,
+        *,
+        plan_path: Path,
+        plan: dict[str, Any],
+        source_audio: Path | None = None,
+        approved_by: str | None = None,
+        rehydrate: bool = True,
+    ) -> None:
+        super().__init__()
+        self._screen_kwargs = {
+            "plan_path": plan_path,
+            "plan": plan,
+            "source_audio": source_audio,
+            "approved_by": approved_by,
+            "rehydrate": rehydrate,
+        }
+        self.exit_code = 1
+
+    def on_mount(self) -> None:
+        self.push_screen(ReviewScreen(**self._screen_kwargs))
+
+
 def run_review_app(
     *,
     plan_path: Path,
     plan: dict[str, Any],
     source_audio: Path | None = None,
     approved_by: str | None = None,
+    rehydrate: bool = True,
 ) -> int:
     app = ReviewApp(
         plan_path=plan_path,
         plan=plan,
         source_audio=source_audio,
         approved_by=approved_by,
+        rehydrate=rehydrate,
     )
     result = app.run()
     if isinstance(result, int):

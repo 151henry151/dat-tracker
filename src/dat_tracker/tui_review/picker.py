@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
 from dat_tracker.review_discover import ReviewableShow
 
 
-class ShowPickerApp(App[ReviewableShow | None]):
-    """List reviewable shows; Enter opens the selected show."""
+class ShowPickerScreen(Screen[ReviewableShow | None]):
+    """List reviewable shows; Enter dismisses with the selected show."""
 
     CSS = """
     #hint {
@@ -80,21 +81,23 @@ class ShowPickerApp(App[ReviewableShow | None]):
             return None
         return self._by_row.get(int(table.cursor_row))
 
+    def _open_show(self, show: ReviewableShow) -> None:
+        self.query_one("#hint", Static).update(
+            f"Opening {show.show_id} — preparing review…"
+        )
+        # Dismiss via the App so we are not awaiting dismiss inside a screen handler.
+        self.app.call_later(self.dismiss, show)
+
     def action_open_selected(self) -> None:
         show = self._selected()
         if show is None:
             return
-        self.query_one("#hint", Static).update(
-            f"Opening {show.show_id} — preparing review…"
-        )
-        # Let the hint paint before we tear down the picker.
-        self.set_timer(0.05, lambda: self.exit(show))
+        self._open_show(show)
 
     def action_quit_picker(self) -> None:
-        self.exit(None)
+        self.dismiss(None)
 
     def action_refresh(self) -> None:
-        # Caller replaces shows before remount if needed; here just redraw.
         self._fill_table()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -102,10 +105,21 @@ class ShowPickerApp(App[ReviewableShow | None]):
             return
         show = self._by_row.get(int(event.cursor_row))
         if show is not None:
-            self.query_one("#hint", Static).update(
-                f"Opening {show.show_id} — preparing review…"
-            )
-            self.set_timer(0.05, lambda: self.exit(show))
+            self._open_show(show)
+
+
+class ShowPickerApp(App[ReviewableShow | None]):
+    """Standalone picker (legacy / tests); prefer :class:`ReviewSessionApp`."""
+
+    def __init__(self, shows: list[ReviewableShow]) -> None:
+        super().__init__()
+        self.shows = list(shows)
+
+    def on_mount(self) -> None:
+        self.push_screen(ShowPickerScreen(self.shows), self._done)
+
+    def _done(self, show: ReviewableShow | None) -> None:
+        self.exit(show)
 
 
 def run_show_picker(shows: list[ReviewableShow]) -> ReviewableShow | None:

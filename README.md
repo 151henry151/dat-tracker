@@ -74,7 +74,7 @@ Early development (**0.1.0**). Version stays at 0.1.0 until Live Bluegrass packa
 - Tier A helpers to align Jon packages inside extracted raws and score plans against known cuts.
 - Classical/ASR proposal stack (silence, energy, speech islands) feeding sparse Gemini listening.
 - End-to-end `scripts/track_show.py`: Whisper → Gemini Flash listen → optional refine / gap-fill / Pro escalate → tracking-plan JSON → **review gate** → optional etree package export.
-- Cross-platform Textual review TUI (`dat-review`): run with no args to pick a show from `data/work`, or `dat-review <show-id>`; waveform overview/detail, cut edit, track/package metadata, playback loop, Accept-all / Save&approve; packaging refuses unapproved plans unless `--force-unreviewed`.
+- Cross-platform Textual review TUI (`dat-review`): run with no args to pick a show from `data/work` (picker stays in the TUI through prepare into review), or `dat-review <show-id>`; waveform overview/detail, cut edit, track/package metadata, playback, Accept-all / Save&approve; packaging refuses unapproved plans unless `--force-unreviewed`.
 - Hardening from calibration loops: endpoint restoration, refine windows, snaps, JSON/transport retries, near-zero merge fix, sparse gap-fill probes, temperature 0.0, segue guidance in the listen prompt.
 
 ### In progress
