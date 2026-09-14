@@ -39,8 +39,15 @@ _CITY_STATE = re.compile(
     r"^(.+?),\s*([A-Za-z.]{2,}(?:\.[A-Za-z.]{1,})?)\s*$"
 )
 _TRACKLIST_START = re.compile(
-    r"^(disc\s+\d+|set\s+\d+|one\s+set|\d{1,2}\.\s*\S)",
+    r"^(disc\s+\d+|set\s+\d+|set\s+[ivxlcdm]+|one\s+set|\d{1,2}\.\s*\S)",
     re.IGNORECASE,
+)
+_SETLIST_SECTION = re.compile(
+    r"^(disc\s+\d+|set\s+[ivxlcdm\d]+|one\s+set)\b",
+    re.IGNORECASE,
+)
+_SETLIST_TRACK = re.compile(
+    r"^(\d{1,2})\s*[.\-\)]\s*(.+)$|^(\d{1,2})\s+(.+)$"
 )
 _STATE_ALIASES = {
     "N.C.": "NC",
@@ -313,6 +320,201 @@ def parse_published_show_txt(path: Path) -> dict[str, Any]:
             break
 
     return {k: v for k, v in fields.items() if v not in (None, "")}
+
+
+def _normalize_setlist_title(raw: str) -> str | None:
+    title = raw.strip().rstrip(".").strip()
+    if not title or title in {"?", "-"}:
+        return None
+    # "A>B>C" → "A > B > C"
+    title = re.sub(r"\s*>\s*", " > ", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    return title or None
+
+
+def parse_published_setlist(path: Path) -> list[str]:
+    """Extract numbered setlist titles from a published show ``.txt``."""
+    text = Path(path).read_text(errors="replace")
+    titles: list[str] = []
+    in_list = False
+    for raw in text.splitlines():
+        ln = raw.strip()
+        if not ln:
+            continue
+        if _SETLIST_SECTION.match(ln):
+            in_list = True
+            continue
+        m = _SETLIST_TRACK.match(ln)
+        if not m:
+            if in_list and titles and not ln[0].isdigit():
+                # Notes / footer after the list.
+                if ln.lower().startswith("note"):
+                    break
+            continue
+        # Dates like ``08-30-2002`` can look like ``08`` + title.
+        if _parse_date_line(ln):
+            continue
+        in_list = True
+        body = m.group(2) if m.group(2) is not None else m.group(4)
+        title = _normalize_setlist_title(body or "")
+        if title:
+            titles.append(title)
+    return titles
+
+
+def hydrate_titles_from_published_setlist(
+    plan: dict[str, Any],
+    *,
+    project_root: Path | None = None,
+    calibration_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Fill blank *song* titles from the published calibration setlist.
+
+    Assigns titles in order to blank ``song`` (and long ``unknown``) tracks,
+    skipping banter/tuning/intro/encore. Does not overwrite existing titles.
+    """
+    plan = migrate_tracking_plan(plan)
+    root = project_root or Path.cwd()
+    cal = calibration_dir
+    if cal is None and plan.get("show_id"):
+        cal = root / "data" / "calibration" / str(plan["show_id"])
+    if cal is None:
+        return plan
+    txt = find_published_show_txt(Path(cal))
+    if txt is None:
+        return plan
+    titles = parse_published_setlist(txt)
+    if not titles:
+        return plan
+
+    tracks = list(plan.get("tracks") or [])
+    title_i = 0
+    changed = False
+    for track in tracks:
+        if title_i >= len(titles):
+            break
+        if track.get("title"):
+            continue
+        track_type = str(track.get("track_type") or "unknown")
+        if track_type in {"banter", "tuning", "intro", "encore_break"}:
+            continue
+        if track_type == "unknown":
+            # Only claim long unknowns as songs for setlist mapping.
+            span = float(track["end_sec"]) - float(track["start_sec"])
+            if span < 60.0:
+                continue
+            track["track_type"] = "song"
+        track["title"] = titles[title_i]
+        title_i += 1
+        changed = True
+        evidence = list(track.get("evidence") or [])
+        if "hydrated_from_published_setlist" not in evidence:
+            evidence.append("hydrated_from_published_setlist")
+            track["evidence"] = evidence
+
+    plan["tracks"] = tracks
+    if changed:
+        notes = list(plan.get("notes") or [])
+        marker = "Hydrated blank song titles from published show.txt setlist."
+        if marker not in notes:
+            notes.append(marker)
+        plan["notes"] = notes
+    validate_tracking_plan(plan)
+    return plan
+
+
+def _merge_surplus_score(track: dict[str, Any]) -> float:
+    """Lower score = more willing to absorb this track into its neighbor."""
+    dur = max(0.01, float(track["end_sec"]) - float(track["start_sec"]))
+    typ = str(track.get("track_type") or "unknown")
+    score = dur
+    if typ in {"banter", "tuning", "intro", "encore_break", "unknown"}:
+        score *= 0.35
+    if dur < 90.0:
+        score *= 0.45
+    if not track.get("title"):
+        score *= 0.85
+    return score
+
+
+def reconcile_track_count_to_published_setlist(
+    plan: dict[str, Any],
+    *,
+    project_root: Path | None = None,
+    calibration_dir: Path | None = None,
+) -> dict[str, Any]:
+    """When the plan has more tracks than the published setlist, merge extras.
+
+    Prefers absorbing short / banter / unknown islands into the *following*
+    song (delete the cut at the island's end). Under-segmentation is only
+    noted — we do not invent cuts from the setlist alone.
+    """
+    from dat_tracker.review_edits import delete_mid_cut
+
+    plan = migrate_tracking_plan(plan)
+    root = project_root or Path.cwd()
+    cal = calibration_dir
+    if cal is None and plan.get("show_id"):
+        cal = root / "data" / "calibration" / str(plan["show_id"])
+    if cal is None:
+        return plan
+    txt = find_published_show_txt(Path(cal))
+    if txt is None:
+        return plan
+    titles = parse_published_setlist(txt)
+    if not titles:
+        return plan
+
+    target = len(titles)
+    tracks = list(plan.get("tracks") or [])
+    if len(tracks) == target:
+        return plan
+
+    notes = list(plan.get("notes") or [])
+    if len(tracks) < target:
+        marker = (
+            f"Published setlist has {target} songs but plan has {len(tracks)} "
+            "tracks (under-segmented); left cuts unchanged for review."
+        )
+        if marker not in notes:
+            notes.append(marker)
+            plan["notes"] = notes
+            plan["needs_review"] = True
+        validate_tracking_plan(plan)
+        return plan
+
+    merged = 0
+    while len(plan.get("tracks") or []) > target:
+        tracks = list(plan.get("tracks") or [])
+        # Merge the weakest non-final track into the following track.
+        best_i = None
+        best_score = None
+        for i in range(len(tracks) - 1):
+            score = _merge_surplus_score(tracks[i])
+            if best_score is None or score < best_score:
+                best_score = score
+                best_i = i
+        if best_i is None:
+            break
+        # Cut index at the end of track best_i (1-based cuts: track i ends at cuts[i+1]).
+        cut_index = best_i + 1
+        before = len(plan["tracks"])
+        plan = delete_mid_cut(plan, cut_index=cut_index)
+        if len(plan.get("tracks") or []) >= before:
+            break
+        merged += 1
+
+    if merged:
+        marker = (
+            f"Reconciled track count to published setlist ({target} songs) "
+            f"by merging {merged} surplus cut(s)."
+        )
+        notes = list(plan.get("notes") or [])
+        if marker not in notes:
+            notes.append(marker)
+        plan["notes"] = notes
+    validate_tracking_plan(plan)
+    return plan
 
 
 def find_published_show_txt(calibration_dir: Path) -> Path | None:

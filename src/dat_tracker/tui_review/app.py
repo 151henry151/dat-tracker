@@ -37,8 +37,11 @@ from dat_tracker.review_baseline import (
 from dat_tracker.review_plan import approve_plan, migrate_tracking_plan
 from dat_tracker.review_hydrate import (
     hydrate_plan_from_notes,
+    hydrate_titles_from_published_setlist,
+    reconcile_track_count_to_published_setlist,
     seed_package_metadata,
 )
+from dat_tracker.review_package_polish import polish_package_metadata
 from dat_tracker.tui_review.widgets.package_form import (
     PACKAGE_FIELD_ORDER,
     package_field_tooltip,
@@ -147,7 +150,17 @@ class ReviewApp(App[int]):
         # on-disk LLM lattice (not titles we fill in-memory).
         ensure_as_delivered_snapshot(self.plan_path, self.plan)
         self.plan = hydrate_plan_from_notes(self.plan)
+        self.plan = reconcile_track_count_to_published_setlist(
+            self.plan, project_root=_REPO_ROOT
+        )
+        self.plan = hydrate_titles_from_published_setlist(
+            self.plan, project_root=_REPO_ROOT
+        )
         self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
+        # Known spelling fixes always; Gemini text polish when API key present.
+        self.plan = polish_package_metadata(
+            self.plan, project_root=_REPO_ROOT, use_llm=True
+        )
         self.source_audio = Path(source_audio) if source_audio else None
         self.approved_by = approved_by
         self.dirty = False
@@ -231,9 +244,10 @@ class ReviewApp(App[int]):
         table.cursor_type = "row"
         self._sync_package_editors()
         self._reload_tracks()
+        self._sync_track_editors()
+        self._set_status("Loading waveform…")
         self._load_envelope()
         self._refresh_waveforms()
-        self._sync_track_editors()
         pkg_filled = sum(1 for v in package_form_values(self.plan).values() if v)
         self._set_status(
             f"Ready — Accept-all (a) or edit then Save & approve (s)"
@@ -567,7 +581,16 @@ class ReviewApp(App[int]):
             self.plan, delivered, keep_package=True
         )
         self.plan = hydrate_plan_from_notes(self.plan)
+        self.plan = reconcile_track_count_to_published_setlist(
+            self.plan, project_root=_REPO_ROOT
+        )
+        self.plan = hydrate_titles_from_published_setlist(
+            self.plan, project_root=_REPO_ROOT
+        )
         self.plan = seed_package_metadata(self.plan, project_root=_REPO_ROOT)
+        self.plan = polish_package_metadata(
+            self.plan, project_root=_REPO_ROOT, use_llm=True
+        )
         self.dirty = True
         self.selected_cut_index = 1 if len(self.plan.get("cuts_sec") or []) > 2 else 0
         self.selected_track_index = 1

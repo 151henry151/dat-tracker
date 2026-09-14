@@ -13,7 +13,13 @@ from dat_tracker.review_discover import (
     discover_reviewable_shows,
     resolve_show_for_review,
 )
-from dat_tracker.review_hydrate import hydrate_plan_from_notes, seed_package_metadata
+from dat_tracker.review_hydrate import (
+    hydrate_plan_from_notes,
+    hydrate_titles_from_published_setlist,
+    reconcile_track_count_to_published_setlist,
+    seed_package_metadata,
+)
+from dat_tracker.review_package_polish import polish_package_metadata
 from dat_tracker.review_plan import accept_all_plan_file, migrate_tracking_plan
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +45,10 @@ def prepare_plan(
 ) -> dict[str, Any]:
     plan = migrate_tracking_plan(raw)
     plan = hydrate_plan_from_notes(plan)
+    plan = reconcile_track_count_to_published_setlist(
+        plan, project_root=project_root
+    )
+    plan = hydrate_titles_from_published_setlist(plan, project_root=project_root)
     plan = seed_package_metadata(
         plan,
         artist=artist,
@@ -49,6 +59,7 @@ def prepare_plan(
         state=state,
         project_root=project_root,
     )
+    plan = polish_package_metadata(plan, project_root=project_root, use_llm=True)
     return plan
 
 
@@ -113,6 +124,7 @@ def run_interactive_review(
         project_root=project_root,
         fallback=None,
     )
+    print("Opening review TUI…", file=sys.stderr)
     return int(
         run_review_app(
             plan_path=plan_path,
@@ -277,6 +289,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             plan_path = picked.plan_path
             source_from_show = picked.source_path
+            print(
+                f"Preparing review for {picked.show_id} "
+                "(titles, package metadata, waveform)…",
+                file=sys.stderr,
+            )
 
     assert plan_path is not None
     if not plan_path.is_file():

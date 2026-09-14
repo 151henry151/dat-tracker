@@ -84,7 +84,11 @@ class ShowPickerApp(App[ReviewableShow | None]):
         show = self._selected()
         if show is None:
             return
-        self.exit(show)
+        self.query_one("#hint", Static).update(
+            f"Opening {show.show_id} — preparing review…"
+        )
+        # Let the hint paint before we tear down the picker.
+        self.set_timer(0.05, lambda: self.exit(show))
 
     def action_quit_picker(self) -> None:
         self.exit(None)
@@ -98,7 +102,10 @@ class ShowPickerApp(App[ReviewableShow | None]):
             return
         show = self._by_row.get(int(event.cursor_row))
         if show is not None:
-            self.exit(show)
+            self.query_one("#hint", Static).update(
+                f"Opening {show.show_id} — preparing review…"
+            )
+            self.set_timer(0.05, lambda: self.exit(show))
 
 
 def run_show_picker(shows: list[ReviewableShow]) -> ReviewableShow | None:

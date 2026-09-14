@@ -155,7 +155,203 @@ def test_hydrate_fills_type_default_titles():
     assert out["tracks"][2]["title"] == "Banter"
 
 
-def test_seed_package_from_show_id_and_overrides():
+def test_reconcile_merges_surplus_short_track_to_match_setlist(tmp_path: Path):
+    from dat_tracker.review_hydrate import reconcile_track_count_to_published_setlist
+
+    cal = tmp_path / "data" / "calibration" / "demo.flac16"
+    cal.mkdir(parents=True)
+    (cal / "info.txt").write_text(
+        "Band\nTown, MO\n2002-08-30\n\n"
+        "Set I\n"
+        "01 Song A\n"
+        "02 Song B\n"
+        "03 Song C\n"
+    )
+    # 4 tracks but setlist has 3 — short middle island should merge away.
+    plan = migrate_tracking_plan(
+        {
+            "schema_version": "1.0.0",
+            "show_id": "demo.flac16",
+            "source_path": "x.flac",
+            "duration_sec": 400.0,
+            "cuts_sec": [0.0, 100.0, 150.0, 200.0, 400.0],
+            "tracks": [
+                {
+                    "index": 1,
+                    "start_sec": 0.0,
+                    "end_sec": 100.0,
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 2,
+                    "start_sec": 100.0,
+                    "end_sec": 150.0,
+                    "track_type": "unknown",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 3,
+                    "start_sec": 150.0,
+                    "end_sec": 200.0,
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 4,
+                    "start_sec": 200.0,
+                    "end_sec": 400.0,
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+            ],
+            "overall_confidence": 0.5,
+            "needs_review": False,
+            "notes": [],
+        }
+    )
+    out = reconcile_track_count_to_published_setlist(plan, project_root=tmp_path)
+    assert len(out["tracks"]) == 3
+    assert len(out["cuts_sec"]) == 4
+    # Short island 100–150 merged into a neighbor; no 50s fragment left.
+    spans = [
+        float(t["end_sec"]) - float(t["start_sec"]) for t in out["tracks"]
+    ]
+    assert min(spans) >= 50.0 - 1e-6
+    assert any(
+        "Reconciled track count" in str(n) for n in out["notes"]
+    )
+
+
+def test_parse_published_setlist_cornmeal_shape(tmp_path: Path):
+    from dat_tracker.review_hydrate import parse_published_setlist
+
+    txt = tmp_path / "show.txt"
+    txt.write_text(
+        "Cornmeal\n"
+        "Venue: Somewhere\n"
+        "Lesterville, MO\n"
+        "08-30-2002\n"
+        "\n"
+        "Set I\n"
+        "\n"
+        "01 Blue Line Express\n"
+        "02 Yesterday Morning\n"
+        "03 Long Gone\n"
+        "04 Salty Dog Blues\n"
+    )
+    assert parse_published_setlist(txt) == [
+        "Blue Line Express",
+        "Yesterday Morning",
+        "Long Gone",
+        "Salty Dog Blues",
+    ]
+
+
+def test_hydrate_titles_from_published_setlist(tmp_path: Path):
+    from dat_tracker.review_hydrate import hydrate_titles_from_published_setlist
+
+    cal = tmp_path / "data" / "calibration" / "crnml2002-08-30.flac16"
+    cal.mkdir(parents=True)
+    (cal / "info.txt").write_text(
+        "Cornmeal\n"
+        "Lesterville, MO\n"
+        "2002-08-30\n"
+        "\n"
+        "Set I\n"
+        "01 Blue Line Express\n"
+        "02 Yesterday Morning\n"
+        "03 Long Gone\n"
+    )
+    plan = migrate_tracking_plan(
+        {
+            "schema_version": "1.0.0",
+            "show_id": "crnml2002-08-30.flac16",
+            "source_path": "x.flac",
+            "duration_sec": 900.0,
+            "cuts_sec": [0.0, 100.0, 200.0, 250.0, 900.0],
+            "tracks": [
+                {
+                    "index": 1,
+                    "start_sec": 0.0,
+                    "end_sec": 100.0,
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 2,
+                    "start_sec": 100.0,
+                    "end_sec": 200.0,
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 3,
+                    "start_sec": 200.0,
+                    "end_sec": 250.0,
+                    "track_type": "banter",
+                    "title": "Banter",
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+                {
+                    "index": 4,
+                    "start_sec": 250.0,
+                    "end_sec": 900.0,
+                    "track_type": "song",
+                    "title": None,
+                    "segue_into_next": False,
+                    "confidence": 0.5,
+                    "evidence": [],
+                },
+            ],
+            "overall_confidence": 0.5,
+            "needs_review": False,
+            "notes": [],
+        }
+    )
+    out = hydrate_titles_from_published_setlist(plan, project_root=tmp_path)
+    assert out["tracks"][0]["title"] == "Blue Line Express"
+    assert out["tracks"][1]["title"] == "Yesterday Morning"
+    assert out["tracks"][2]["title"] == "Banter"  # banter untouched
+    assert out["tracks"][3]["title"] == "Long Gone"
+    validate_tracking_plan(out)
+
+
+def test_hydrate_setlist_skips_question_placeholder(tmp_path: Path):
+    from dat_tracker.review_hydrate import parse_published_setlist
+
+    txt = tmp_path / "s.txt"
+    txt.write_text(
+        "Artist\nVenue\nTown, NC\n2001-04-27\n\n"
+        "disc 1\n"
+        "01.Girl from the north country\n"
+        "02.?\n"
+        "03.Sailin' shoes>Crossroads\n"
+    )
+    assert parse_published_setlist(txt) == [
+        "Girl from the north country",
+        "Sailin' shoes > Crossroads",
+    ]
     plan = seed_package_metadata(
         _sbb_like_plan(),
         artist="Sam Bush",

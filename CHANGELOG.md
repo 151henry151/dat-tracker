@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Snapshot `tracking_plan_as_delivered.json` when tracking finishes; add review TUI **Reset to LLM** (`r`) to restore cuts/tracks while keeping package fields.
 - Parse legacy Gemini note timestamps (``112.94s: REJECT - …``) and ``continuous music/singing (Title)`` forms during review hydrate.
 - Re-type blank previously hydrated ``song`` tracks to ``banter`` when listen notes show stage banter (so reopen matches Reset to LLM).
+- Polish seeded package metadata with known spelling fixes (e.g. ``Douglass`` → ``Douglas``) and optional Gemini text correction on review open / Accept-all prepare.
+- Disable Gemini automatic function calling on package-metadata polish and skip the LLM polish when the plan was already polished (avoids AFC console warnings on every ``dat-review`` open).
+- Fill blank song titles from the published calibration show.txt setlist when Gemini left tracks untitled.
+- When the plan has more tracks than the published setlist, merge surplus short/banter/unknown islands to match the setlist count.
+- Show picker/CLI progress when opening a review (``Opening…`` / ``Preparing review…``) and a ``Loading waveform…`` status on mount.
 - Play review TUI audio via ``ffplay`` (ffmpeg) instead of PortAudio/sounddevice so Space/loop is audible on typical Linux desktops.
 - Advance a full-height cyan hearing cursor on overview/detail while audio plays; status shows the exact time and loop window.
 - Keep the detail waveform locked to the hearing loop during playback and only move the cyan cursor (~40 Hz) so scrubbing looks smooth.
