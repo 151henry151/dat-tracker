@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Make `dat-review` dump-directory-first: prompt for continuous FLACs, list shows (including untracked), run tracking when needed, then open review; add `--dump-root` and `--work-plans` escapes.
 - Prompt for tracker defaults inside the same `dat-review` session (no separate app), and return to the show list on review quit instead of exiting to the shell.
 - Prompt for a Gemini API key inside the same `dat-review` session when none is configured (save to project `.env`, or skip with a warning).
+- Replace the dump-path text field with an in-TUI directory browser (`DirectoryTree`, directories only).
+- Add Track all (`a`) on dump show lists: confirm, then batch-track every untracked FLAC and refresh the list.
+- Show live overall and per-show progress (stage text + progress bars) while tracking one show or Track all.
 - Continue `dat-review` after Accept-all / Save & approve into packaging (`data/out/<show_id>/` with Vorbis tags, show.txt, ffp) and a confirmed Archive.org upload flow (never silent).
 - Add in-TUI Archive.org login (email/password → local `ia` config) on the upload confirm screen.
 - Add `package_pipeline.build_package` and `ia_upload` helpers with catalog/`ia` preflight; document the operator path in `docs/upload-checklist.md`.

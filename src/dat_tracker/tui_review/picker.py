@@ -11,9 +11,12 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from dat_tracker.review_discover import ReviewableShow
 
+# Sentinel dismissed when the operator chooses Track all on a dump list.
+TRACK_ALL = "track_all"
 
-class ShowPickerScreen(Screen[ReviewableShow | None]):
-    """List reviewable shows; Enter dismisses with the selected show."""
+
+class ShowPickerScreen(Screen[ReviewableShow | str | None]):
+    """List reviewable shows; Enter opens one, a tracks all untracked (dump lists)."""
 
     CSS = """
     #hint {
@@ -30,6 +33,7 @@ class ShowPickerScreen(Screen[ReviewableShow | None]):
         Binding("q", "quit_picker", "Back", show=True),
         Binding("enter", "open_selected", "Open", show=True),
         Binding("r", "refresh", "Refresh", show=True),
+        Binding("a", "track_all", "Track all", show=True),
     ]
 
     def __init__(
@@ -43,12 +47,17 @@ class ShowPickerScreen(Screen[ReviewableShow | None]):
         self.dump_root = dump_root
         self._by_row: dict[int, ReviewableShow] = {}
 
+    def untracked_shows(self) -> list[ReviewableShow]:
+        return [s for s in self.shows if s.needs_tracking]
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         if self.dump_root is not None:
+            n = len(self.untracked_shows())
+            extra = f" a tracks all ({n} untracked)." if n else ""
             hint = (
                 f"Shows under {self.dump_root}. "
-                "Enter opens (tracks untracked FLACs first). q goes back."
+                f"Enter opens (tracks untracked FLACs first).{extra} q goes back."
             )
         else:
             hint = (
@@ -125,6 +134,17 @@ class ShowPickerScreen(Screen[ReviewableShow | None]):
         if show is None:
             return
         self._open_show(show)
+
+    def action_track_all(self) -> None:
+        if self.dump_root is None:
+            return
+        untracked = self.untracked_shows()
+        if not untracked:
+            self.query_one("#hint", Static).update(
+                "No untracked shows in this list."
+            )
+            return
+        self.dismiss(TRACK_ALL)
 
     def action_quit_picker(self) -> None:
         self.dismiss(None)

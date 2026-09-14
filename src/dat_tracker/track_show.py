@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dat_tracker.boundaries import probe_duration_seconds, summarize_comparison
 from dat_tracker.energy import propose_cuts_from_audio, silence_ends_with_rms_rise
@@ -171,20 +171,31 @@ def run_track_show(
     force_unreviewed: bool = False,
     accept_all_review: bool = False,
     interactive_review: bool = True,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
-    """Run sparse Gemini tracking and optionally export an etree-style package."""
+    """Run sparse Gemini tracking and optionally export an etree-style package.
+
+    ``on_progress(message, fraction)`` is called with a human-readable stage
+    and a 0..1 fraction for the current show (best-effort).
+    """
+    def progress(message: str, fraction: float) -> None:
+        if on_progress is not None:
+            on_progress(message, max(0.0, min(1.0, float(fraction))))
+
     root = project_root or Path.cwd()
     paths = track_show_paths(work_root, show_id)
     paths["work_dir"].mkdir(parents=True, exist_ok=True)
     do_speech_snap = resolve_speech_snap(refine=refine, speech_snap=speech_snap)
 
     cache_path = whisper_cache_path or paths["whisper_cache"]
+    progress("Whisper speech transcription…", 0.05)
     payload = ensure_whisper_cache(
         audio_path=source_audio,
         cache_path=cache_path,
         model_size=whisper_model,
     )
     segs = parse_whisper_segments(payload)
+    progress("Measuring duration / proposing cuts…", 0.15)
     duration = probe_duration_seconds(source_audio)
     energy_cuts = propose_cuts_from_audio(source_audio, min_separation_sec=60.0)
     silence_cuts = silence_end_candidates(
@@ -196,6 +207,7 @@ def run_track_show(
     effective_probe_step = (
         min(probe_step_sec, 60.0) if duration >= 1000.0 else probe_step_sec
     )
+    progress("Building speech/energy listen centers…", 0.25)
     anchors, probes = speech_anchor_cuts_with_probes(
         segs,
         duration_sec=duration,
@@ -225,6 +237,7 @@ def run_track_show(
     except ValueError:
         rel_source = str(source_audio)
 
+    progress("Gemini listen (boundaries / titles)…", 0.35)
     plan = request_tracking_plan_from_clips(
         source_audio=source_audio,
         show_id=show_id,
@@ -272,6 +285,7 @@ def run_track_show(
             max_probes_per_gap=2,
         )
         if gap_probes:
+            progress("Gemini gap-fill (insert misses)…", 0.55)
             plan = gap_fill_tracking_plan_cuts(
                 plan,
                 source_audio=source_audio,
@@ -323,6 +337,7 @@ def run_track_show(
                 max_probes_per_gap=2,
             )
             if gap_probes:
+                progress("Gemini gap-fill (insert misses)…", 0.55)
                 plan = gap_fill_tracking_plan_cuts(
                     plan,
                     source_audio=source_audio,
@@ -345,6 +360,7 @@ def run_track_show(
                     note="Restored plan endpoints after gap-fill.",
                 )
     if refine:
+        progress("Gemini refine (snap cuts)…", 0.70)
         plan = refine_tracking_plan_cuts(
             plan,
             source_audio=source_audio,
@@ -362,6 +378,7 @@ def run_track_show(
             ),
         )
     if do_speech_snap:
+        progress("Speech-onset snap…", 0.80)
         islands = merge_speech_islands(
             filter_plausible_speech_segments(segs, max_seg_sec=20.0)
         )
@@ -504,6 +521,7 @@ def run_track_show(
         package_fields_from_plan,
     )
 
+    progress("Writing tracking plan…", 0.92)
     plan = migrate_tracking_plan(plan)
     pkg = plan.setdefault("package", {})
     pkg.setdefault("artist", artist)
@@ -523,6 +541,7 @@ def run_track_show(
     from dat_tracker.review_baseline import write_as_delivered_snapshot
 
     write_as_delivered_snapshot(paths["plan"], plan, overwrite=True)
+    progress("Show tracking complete", 1.0)
 
     result: dict[str, Any] = {
         "plan": plan,

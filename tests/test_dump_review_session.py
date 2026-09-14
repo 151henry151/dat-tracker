@@ -115,8 +115,11 @@ def test_session_tracks_untracked_then_opens_review(tmp_path: Path):
     async def run() -> None:
         async with app.run_test() as pilot:
             await pilot.pause()
-            # Dump root prefilled — confirm with Enter on the path input.
-            await pilot.press("enter")
+            # Directory browser — confirm the initial dump folder.
+            from dat_tracker.tui_review.dump_root import DumpRootScreen
+
+            assert isinstance(app.screen, DumpRootScreen)
+            app.screen.action_confirm()
             for _ in range(40):
                 if isinstance(app.screen, ShowPickerScreen):
                     break

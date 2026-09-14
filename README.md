@@ -368,8 +368,8 @@ Outputs land under `data/work/<show-id>/` (plan JSON, listen clips, optional `pa
 ### 5b. Review a plan (required before packaging)
 
 ```bash
-# Operator path: pick the FLAC dump directory, then a show
-# (untracked FLACs are tracked automatically before review)
+# Operator path: browse to the FLAC dump directory, then pick a show
+# (untracked FLACs are tracked automatically before review; a = Track all)
 dat-review
 
 # Skip the prompt when you already know the dump path

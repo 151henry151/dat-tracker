@@ -8,14 +8,15 @@ from typing import Any
 
 from textual import work
 from textual.app import App
+from textual.binding import Binding
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Header, ProgressBar, Static
 
 from dat_tracker.dump_discover import default_dump_root, discover_dump_shows
 from dat_tracker.review_discover import ReviewableShow, discover_reviewable_shows
 from dat_tracker.tui_review.app import ReviewScreen
 from dat_tracker.tui_review.dump_root import DumpRootScreen
-from dat_tracker.tui_review.picker import ShowPickerScreen
+from dat_tracker.tui_review.picker import TRACK_ALL, ShowPickerScreen
 
 
 def ensure_show_tracked(
@@ -24,6 +25,7 @@ def ensure_show_tracked(
     project_root: Path,
     work_dir: Path | None = None,
     tracker: str | None = None,
+    on_progress: Any | None = None,
 ) -> ReviewableShow:
     """Run the LLM tracker when the dump FLAC has no plan yet; return an updated show."""
     if not show.needs_tracking and show.plan_path.is_file():
@@ -52,6 +54,7 @@ def ensure_show_tracked(
         interactive_review=False,
         accept_all_review=False,
         force_unreviewed=False,
+        on_progress=on_progress,
     )
     plan_path = work_root / show.show_id / "tracking_plan_gemini.json"
     paths_map = result.get("paths") if isinstance(result.get("paths"), dict) else {}
@@ -180,12 +183,16 @@ class TrackingScreen(Screen[ReviewableShow | None]):
     """In-TUI wait while Gemini tracking writes a plan for an untracked FLAC."""
 
     CSS = """
-    #track {
+    #track-wrap {
         width: 1fr;
         height: 1fr;
-        content-align: center middle;
         padding: 2 4;
+        content-align: center middle;
     }
+    #track-title { text-style: bold; }
+    #track-path { color: $text-muted; }
+    #track-stage { padding-top: 1; }
+    #show-bar { width: 80%; padding-top: 1; }
     """
 
     def __init__(
@@ -203,26 +210,41 @@ class TrackingScreen(Screen[ReviewableShow | None]):
         self.tracker = tracker
 
     def compose(self):  # type: ignore[override]
+        from textual.containers import Vertical
+
         yield Header(show_clock=True)
-        yield Static(
-            f"Tracking {self.show.show_id}\n"
-            f"{self.show.relative_path or self.show.source_path}\n"
-            "(Whisper + Gemini — this can take several minutes…)",
-            id="track",
-        )
+        with Vertical(id="track-wrap"):
+            yield Static(f"Tracking {self.show.show_id}", id="track-title")
+            yield Static(
+                str(self.show.relative_path or self.show.source_path or ""),
+                id="track-path",
+            )
+            yield Static("Starting…", id="track-stage")
+            yield ProgressBar(total=100, show_eta=False, id="show-bar")
+            yield Static("Current show: 0%", id="show-pct")
         yield Footer()
 
     def on_mount(self) -> None:
         self.run_tracking()
 
+    def _on_progress(self, message: str, fraction: float) -> None:
+        pct = int(round(fraction * 100))
+        self.query_one("#track-stage", Static).update(message)
+        self.query_one("#show-bar", ProgressBar).update(progress=pct)
+        self.query_one("#show-pct", Static).update(f"Current show: {pct}%")
+
     @work(thread=True, exclusive=True)
     def run_tracking(self) -> None:
+        def on_progress(message: str, fraction: float) -> None:
+            self.app.call_from_thread(self._on_progress, message, fraction)
+
         try:
             result = ensure_show_tracked(
                 self.show,
                 project_root=self.project_root,
                 work_dir=self.work_dir,
                 tracker=self.tracker,
+                on_progress=on_progress,
             )
         except Exception as exc:  # noqa: BLE001
             self.app.call_from_thread(self._fail, str(exc))
@@ -230,11 +252,222 @@ class TrackingScreen(Screen[ReviewableShow | None]):
         self.app.call_from_thread(self.dismiss, result)
 
     def _fail(self, message: str) -> None:
-        self.query_one("#track", Static).update(
+        self.query_one("#track-stage", Static).update(
             f"Tracking failed for {self.show.show_id}:\n{message}\n\n"
             "Returning to show list…"
         )
         self.app.call_later(self.dismiss, None)
+
+
+class ConfirmTrackAllScreen(Screen[bool]):
+    """Confirm batch-tracking every untracked show in the dump list."""
+
+    CSS = """
+    #confirm-body {
+        width: 1fr;
+        height: 1fr;
+        content-align: center middle;
+        padding: 2 4;
+    }
+    #confirm-actions {
+        height: 3;
+        padding: 0 2;
+    }
+    """
+
+    BINDINGS = [
+        Binding("enter", "confirm", "Track all", show=True),
+        Binding("y", "confirm", "Track all", show=False),
+        Binding("n", "cancel", "Cancel", show=True),
+        Binding("escape", "cancel", "Cancel", show=False),
+        Binding("q", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(self, *, count: int) -> None:
+        super().__init__()
+        self.count = count
+
+    def compose(self):  # type: ignore[override]
+        from textual.containers import Vertical
+        from textual.widgets import Button
+
+        yield Header(show_clock=True)
+        yield Static(
+            f"Track all {self.count} untracked show(s)?\n\n"
+            "Each show runs Whisper + Gemini and may take several minutes.\n"
+            "A long list can take hours and will use Gemini API quota.\n"
+            "When finished you return to the show list to open any show for "
+            "waveform review.\n"
+            "Failed shows are skipped; the list refreshes when finished.",
+            id="confirm-body",
+        )
+        with Vertical(id="confirm-actions"):
+            yield Button("Track all", id="track-all-yes", variant="primary")
+            yield Button("Cancel", id="track-all-no")
+        yield Footer()
+
+    def action_confirm(self) -> None:
+        self.dismiss(True)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_button_pressed(self, event) -> None:  # noqa: ANN001
+        from textual.widgets import Button
+
+        if not isinstance(event.button, Button):
+            return
+        if event.button.id == "track-all-yes":
+            self.action_confirm()
+        elif event.button.id == "track-all-no":
+            self.action_cancel()
+
+
+class TrackAllScreen(Screen[dict[str, Any]]):
+    """Track every untracked show sequentially with live overall + per-show progress."""
+
+    CSS = """
+    #track-all-wrap {
+        width: 1fr;
+        height: 1fr;
+        padding: 2 4;
+        content-align: center middle;
+    }
+    #batch-summary { text-style: bold; }
+    #overall-bar, #show-bar { width: 80%; padding-top: 1; }
+    #track-path { color: $text-muted; }
+    #track-stage { padding-top: 1; }
+    #track-errors { color: $warning; padding-top: 1; }
+    """
+
+    def __init__(
+        self,
+        shows: list[ReviewableShow],
+        *,
+        project_root: Path,
+        work_dir: Path | None = None,
+        tracker: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.shows = list(shows)
+        self.project_root = Path(project_root)
+        self.work_dir = work_dir
+        self.tracker = tracker
+        self._index = 0
+        self._show_frac = 0.0
+        self._failed = 0
+
+    def compose(self):  # type: ignore[override]
+        from textual.containers import Vertical
+
+        total = len(self.shows)
+        yield Header(show_clock=True)
+        with Vertical(id="track-all-wrap"):
+            yield Static(
+                f"Track all — 0 / {total} shows (0%)",
+                id="batch-summary",
+            )
+            yield ProgressBar(total=100, show_eta=False, id="overall-bar")
+            yield Static("Current show: —", id="current-show")
+            yield Static("", id="track-path")
+            yield Static("Starting…", id="track-stage")
+            yield ProgressBar(total=100, show_eta=False, id="show-bar")
+            yield Static("Current show: 0%", id="show-pct")
+            yield Static("", id="track-errors")
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_batch()
+
+    def _overall_pct(self) -> float:
+        total = max(len(self.shows), 1)
+        return 100.0 * (self._index - 1 + self._show_frac) / total
+
+    def _refresh_ui(
+        self,
+        *,
+        show_id: str,
+        path: str,
+        stage: str,
+        show_frac: float,
+        failed: int,
+    ) -> None:
+        total = len(self.shows)
+        self._show_frac = show_frac
+        overall = self._overall_pct()
+        done = max(self._index - 1, 0)
+        self.query_one("#batch-summary", Static).update(
+            f"Track all — {done} / {total} complete · overall {overall:.0f}%"
+        )
+        self.query_one("#overall-bar", ProgressBar).update(progress=overall)
+        self.query_one("#current-show", Static).update(
+            f"Now tracking {self._index}/{total}: {show_id}"
+        )
+        self.query_one("#track-path", Static).update(path)
+        self.query_one("#track-stage", Static).update(stage)
+        show_pct = int(round(show_frac * 100))
+        self.query_one("#show-bar", ProgressBar).update(progress=show_pct)
+        self.query_one("#show-pct", Static).update(f"Current show: {show_pct}%")
+        if failed:
+            self.query_one("#track-errors", Static).update(
+                f"{failed} failed so far (continuing)…"
+            )
+
+    @work(thread=True, exclusive=True)
+    def run_batch(self) -> None:
+        ok = 0
+        failed: list[str] = []
+        total = len(self.shows)
+        for i, show in enumerate(self.shows, start=1):
+            self._index = i
+            self._show_frac = 0.0
+            path = str(show.relative_path or show.source_path or "")
+
+            def on_progress(
+                message: str,
+                fraction: float,
+                *,
+                _show_id: str = show.show_id,
+                _path: str = path,
+            ) -> None:
+                self.app.call_from_thread(
+                    self._refresh_ui,
+                    show_id=_show_id,
+                    path=_path,
+                    stage=message,
+                    show_frac=fraction,
+                    failed=len(failed),
+                )
+
+            self.app.call_from_thread(
+                self._refresh_ui,
+                show_id=show.show_id,
+                path=path,
+                stage="Starting…",
+                show_frac=0.0,
+                failed=len(failed),
+            )
+            try:
+                ensure_show_tracked(
+                    show,
+                    project_root=self.project_root,
+                    work_dir=self.work_dir,
+                    tracker=self.tracker,
+                    on_progress=on_progress,
+                )
+                ok += 1
+            except Exception as exc:  # noqa: BLE001
+                failed.append(f"{show.show_id}: {exc}")
+                self.app.call_from_thread(
+                    self._refresh_ui,
+                    show_id=show.show_id,
+                    path=path,
+                    stage=f"Failed: {exc}",
+                    show_frac=1.0,
+                    failed=len(failed),
+                )
+        summary = {"ok": ok, "failed": failed, "total": total}
+        self.app.call_from_thread(self.dismiss, summary)
 
 
 class ReviewSessionApp(App[int]):
@@ -374,7 +607,7 @@ class ReviewSessionApp(App[int]):
         except OSError:
             pass
 
-    def _on_picked(self, show: ReviewableShow | None) -> None:
+    def _on_picked(self, show: ReviewableShow | str | None) -> None:
         if show is None:
             if self.dump_first:
                 initial = self.dump_root or self.initial_dump_root or default_dump_root(
@@ -390,6 +623,17 @@ class ReviewSessionApp(App[int]):
                 return
             self.exit(1)
             return
+        if show == TRACK_ALL:
+            untracked = [s for s in self.shows if s.needs_tracking]
+            if not untracked:
+                self._refresh_picker()
+                return
+            self.push_screen(
+                ConfirmTrackAllScreen(count=len(untracked)),
+                self._on_track_all_confirmed,
+            )
+            return
+        assert isinstance(show, ReviewableShow)
         if show.needs_tracking or not show.plan_path.is_file():
             self.push_screen(
                 TrackingScreen(
@@ -402,6 +646,24 @@ class ReviewSessionApp(App[int]):
             )
             return
         self._push_prepare(show)
+
+    def _on_track_all_confirmed(self, confirmed: bool | None) -> None:
+        if not confirmed:
+            self._refresh_picker()
+            return
+        untracked = [s for s in self.shows if s.needs_tracking]
+        self.push_screen(
+            TrackAllScreen(
+                untracked,
+                project_root=self.project_root,
+                work_dir=self.work_dir,
+                tracker=self.tracker or self.approved_by,
+            ),
+            self._on_track_all_done,
+        )
+
+    def _on_track_all_done(self, summary: dict[str, Any] | None) -> None:
+        self._refresh_picker()
 
     def _on_tracked(self, show: ReviewableShow | None) -> None:
         if show is None:
