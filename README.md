@@ -4,7 +4,7 @@
 
 The everyday tool is **`dat-review`**: a terminal app that walks you from “here is my folder of FLACs” through automatic tracking, a review screen, packaging, and (if you want) Archive.org upload.
 
-**Status:** early (**0.1.0**). It is usable for trying the flow on your own continuous FLACs. Batch-uploading a whole dump is **not** recommended yet — tracking quality is still being calibrated (see [PLAN.md](PLAN.md)).
+**Status:** early (**0.1.1**). It is usable for trying the flow on your own continuous FLACs. Batch-uploading a whole dump is **not** recommended yet — tracking quality is still being calibrated (see [PLAN.md](PLAN.md)).
 
 ---
 
