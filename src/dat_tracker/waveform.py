@@ -163,6 +163,35 @@ def nearest_cut_index_at_column(
     return best_i
 
 
+def resolve_waveform_click(
+    *,
+    click_col: int,
+    width: int,
+    duration_sec: float,
+    local_cuts: list[float],
+    time_offset_sec: float = 0.0,
+    max_col_distance: int = 3,
+) -> tuple[str, float | int]:
+    """Map a waveform click to cut selection or absolute seek time.
+
+    Returns ``(\"cut\", cut_index)`` when the click is near a cut marker,
+    otherwise ``(\"seek\", absolute_time_sec)``.
+    """
+    idx = nearest_cut_index_at_column(
+        local_cuts,
+        click_col=click_col,
+        width=width,
+        duration_sec=duration_sec,
+        max_col_distance=max_col_distance,
+    )
+    if idx is not None:
+        return ("cut", int(idx))
+    t_local = column_to_time_sec(
+        click_col, duration_sec=duration_sec, width=width
+    )
+    return ("seek", float(t_local) + float(time_offset_sec))
+
+
 def render_envelope_line(
     peaks: list[float] | np.ndarray,
     *,

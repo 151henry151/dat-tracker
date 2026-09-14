@@ -149,6 +149,32 @@ def test_nearest_cut_index_at_column():
     )
 
 
+def test_resolve_waveform_click_cut_vs_seek():
+    from dat_tracker.waveform import resolve_waveform_click
+
+    cuts = [0.0, 25.0, 50.0, 100.0]
+    kind, val = resolve_waveform_click(
+        click_col=10,
+        width=21,
+        duration_sec=100.0,
+        local_cuts=cuts,
+        max_col_distance=2,
+    )
+    assert kind == "cut"
+    assert val == 2
+
+    kind, val = resolve_waveform_click(
+        click_col=7,
+        width=21,
+        duration_sec=100.0,
+        local_cuts=cuts,
+        max_col_distance=1,
+    )
+    assert kind == "seek"
+    assert isinstance(val, float)
+    assert 20.0 < val < 45.0
+
+
 def test_column_to_time_sec_roundtrip():
     from dat_tracker.waveform import column_to_time_sec, marker_column
 

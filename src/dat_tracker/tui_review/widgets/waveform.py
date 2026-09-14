@@ -10,9 +10,9 @@ from textual.reactive import reactive
 from textual.widget import Widget
 
 from dat_tracker.waveform import (
-    nearest_cut_index_at_column,
     render_envelope_panel,
     render_time_ruler,
+    resolve_waveform_click,
     slice_envelope_window,
 )
 
@@ -65,6 +65,13 @@ class WaveformView(Widget):
         def __init__(self, cut_index: int, time_sec: float) -> None:
             super().__init__()
             self.cut_index = cut_index
+            self.time_sec = time_sec
+
+    class SeekClicked(Message):
+        """Posted when the user clicks the waveform away from cut markers."""
+
+        def __init__(self, time_sec: float) -> None:
+            super().__init__()
             self.time_sec = time_sec
 
     def __init__(
@@ -132,7 +139,7 @@ class WaveformView(Widget):
         return out
 
     def on_click(self, event) -> None:  # textual.events.Click
-        """Select the nearest cut marker under the click (or nearby)."""
+        """Select a nearby cut, or seek playback to the clicked time."""
         self.focus()
         # event.x/y are relative to the widget; padding is 1 on left.
         col = int(event.x) - 1
@@ -143,29 +150,23 @@ class WaveformView(Widget):
         abs_markers = list(self.absolute_markers) or [
             float(t) + float(self.time_offset_sec) for t in self.markers_sec
         ]
-        if not abs_markers:
-            return
         local_cuts = [float(t) - float(self.time_offset_sec) for t in abs_markers]
-        idx = nearest_cut_index_at_column(
-            local_cuts,
+        kind, val = resolve_waveform_click(
             click_col=col,
             width=self._panel_width,
             duration_sec=self.duration_sec,
+            local_cuts=local_cuts,
+            time_offset_sec=float(self.time_offset_sec),
             max_col_distance=3,
         )
-        if idx is None:
-            from dat_tracker.waveform import column_to_time_sec
-
-            t_local = column_to_time_sec(
-                col, duration_sec=self.duration_sec, width=self._panel_width
-            )
-            abs_t = t_local + float(self.time_offset_sec)
-            idx = min(
-                range(len(abs_markers)),
-                key=lambda i: abs(float(abs_markers[i]) - abs_t),
-            )
         event.stop()
-        self.post_message(self.CutMarkerClicked(idx, float(abs_markers[idx])))
+        if kind == "cut":
+            idx = int(val)
+            self.post_message(
+                self.CutMarkerClicked(idx, float(abs_markers[idx]))
+            )
+            return
+        self.post_message(self.SeekClicked(float(val)))
 
 
 class DetailWaveformView(WaveformView):

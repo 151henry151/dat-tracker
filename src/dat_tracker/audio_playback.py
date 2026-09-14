@@ -30,6 +30,21 @@ def clamp_play_range(
     return start, end
 
 
+def resolve_playback_start_sec(
+    playhead_sec: float | None,
+    *,
+    selected_cut_sec: float | None = None,
+    duration_sec: float,
+) -> float:
+    """Pick where Space should start: explicit playhead, else selected cut, else 0."""
+    duration = max(0.0, float(duration_sec))
+    if playhead_sec is not None:
+        return max(0.0, min(duration, float(playhead_sec)))
+    if selected_cut_sec is not None:
+        return max(0.0, min(duration, float(selected_cut_sec)))
+    return 0.0
+
+
 def loop_window_around_cut(
     cut_sec: float,
     *,
@@ -42,6 +57,19 @@ def loop_window_around_cut(
         float(cut_sec) + half,
         duration_sec=float(duration_sec),
     )
+
+
+def playhead_for_cut(
+    cut_sec: float,
+    *,
+    duration_sec: float,
+    half_window_sec: float = 8.0,
+) -> float:
+    """Default cyan playhead when selecting a cut (start of the loop window)."""
+    start, _end = loop_window_around_cut(
+        cut_sec, duration_sec=duration_sec, half_window_sec=half_window_sec
+    )
+    return start
 
 
 def estimate_playback_position(
@@ -156,6 +184,11 @@ class AudioPlayer:
             return None
         with self._lock:
             return (self._seg_start, self._seg_end)
+
+    @property
+    def is_looping(self) -> bool:
+        with self._lock:
+            return bool(self._loop) and self._playing
 
     def current_position_sec(self) -> float | None:
         """Estimated show time currently audible (wall-clock vs segment)."""

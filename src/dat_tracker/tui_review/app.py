@@ -21,7 +21,12 @@ from textual.widgets import (
     Static,
 )
 
-from dat_tracker.audio_playback import AudioPlayer, loop_window_around_cut
+from dat_tracker.audio_playback import (
+    AudioPlayer,
+    loop_window_around_cut,
+    playhead_for_cut,
+    resolve_playback_start_sec,
+)
 from dat_tracker.review_edits import (
     delete_mid_cut,
     insert_mid_cut,
@@ -50,6 +55,10 @@ from dat_tracker.tui_review.widgets.package_form import (
 from dat_tracker.tui_review.widgets.track_table import format_track_rows
 from dat_tracker.tui_review.widgets.waveform import DetailWaveformView, WaveformView
 from dat_tracker.waveform import load_or_build_envelope
+
+_LONG_PLAY_FOLLOW_SEC = 40.0
+_DETAIL_HALF_WINDOW_SEC = 20.0
+_DETAIL_FOLLOW_MARGIN_SEC = 3.0
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -279,6 +288,49 @@ class ReviewApp(App[int]):
         for row in format_track_rows(self.plan):
             table.add_row(*row)
 
+    def _hearing_span_sec(self) -> float | None:
+        hearing = self._player.hearing_window
+        if hearing is None:
+            return None
+        return float(hearing[1]) - float(hearing[0])
+
+    def _is_long_play(self) -> bool:
+        span = self._hearing_span_sec()
+        return span is not None and span > _LONG_PLAY_FOLLOW_SEC
+
+    def _playhead_outside_detail(self, *, margin_sec: float = _DETAIL_FOLLOW_MARGIN_SEC) -> bool:
+        if self._playhead is None:
+            return False
+        detail = self.query_one("#detail", DetailWaveformView)
+        local = float(self._playhead) - float(detail.window_start_sec)
+        return local < margin_sec or local > float(detail.duration_sec) - margin_sec
+
+    def _playback_status_suffix(self, hearing: tuple[float, float]) -> str:
+        if self._player.is_looping:
+            return (
+                f"loop {_format_hear_clock(hearing[0])}–"
+                f"{_format_hear_clock(hearing[1])}  (space pause)"
+            )
+        return f"to {_format_hear_clock(hearing[1])}  (space pause)"
+
+    def _show_duration_sec(self) -> float:
+        duration = float(self.plan.get("duration_sec") or 0.0)
+        if duration > 0:
+            return duration
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        return float(cuts[-1]) if cuts else 0.0
+
+    def _set_playhead(self, time_sec: float) -> None:
+        """Move the cyan start/cursor marker without starting playback."""
+        duration = self._show_duration_sec()
+        t = resolve_playback_start_sec(time_sec, duration_sec=duration)
+        if self._player.is_playing:
+            self._player.stop()
+            self._stop_play_ui()
+        self._playhead = t
+        self._refresh_waveforms()
+        self._set_status(f"Playhead {_format_hear_clock(t)}")
+
     def _refresh_waveforms(self) -> None:
         cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
         overview = self.query_one("#overview", WaveformView)
@@ -291,9 +343,10 @@ class ReviewApp(App[int]):
         hearing = self._player.hearing_window
         playing = self._player.is_playing and hearing is not None
         if playing and hearing is not None and self._playhead is not None:
+            kind = "loop" if self._player.is_looping else "play"
             overview.label = (
                 f"overview — HEARING {_format_hear_clock(self._playhead)}  "
-                f"(loop {_format_hear_clock(hearing[0])}–"
+                f"({kind} {_format_hear_clock(hearing[0])}–"
                 f"{_format_hear_clock(hearing[1])}; cyan ▶)"
             )
         else:
@@ -312,25 +365,48 @@ class ReviewApp(App[int]):
         )
         overview.selected_marker_sec = selected
         if playing and hearing is not None:
-            # Lock detail to the audible loop so only the cyan cursor moves.
             hear_start, hear_end = hearing
-            center = (hear_start + hear_end) / 2.0
-            half = max(0.5, (hear_end - hear_start) / 2.0)
-            window = detail.set_detail(
-                self._envelope,
-                center_sec=center,
-                half_window_sec=half,
-                markers_sec=cuts,
-                playhead_sec=self._playhead,
-                selected_marker_sec=selected,
-            )
-            overview.viewport_sec = hearing
+            if self._is_long_play():
+                # Follow playhead in a ±20s detail window; do not lock to full show.
+                center = (
+                    float(self._playhead)
+                    if self._playhead is not None
+                    else float(hear_start)
+                )
+                window = detail.set_detail(
+                    self._envelope,
+                    center_sec=center,
+                    half_window_sec=_DETAIL_HALF_WINDOW_SEC,
+                    markers_sec=cuts,
+                    playhead_sec=self._playhead,
+                    selected_marker_sec=selected,
+                )
+                overview.viewport_sec = window
+            else:
+                # Lock detail to the audible loop so only the cyan cursor moves.
+                center = (hear_start + hear_end) / 2.0
+                half = max(0.5, (hear_end - hear_start) / 2.0)
+                window = detail.set_detail(
+                    self._envelope,
+                    center_sec=center,
+                    half_window_sec=half,
+                    markers_sec=cuts,
+                    playhead_sec=self._playhead,
+                    selected_marker_sec=selected,
+                )
+                overview.viewport_sec = hearing
         else:
-            center = selected if selected is not None else 0.0
+            # Idle: prefer playhead so click-to-place keeps the marker in view.
+            if self._playhead is not None:
+                center = float(self._playhead)
+            elif selected is not None:
+                center = selected
+            else:
+                center = 0.0
             window = detail.set_detail(
                 self._envelope,
                 center_sec=center,
-                half_window_sec=20.0,
+                half_window_sec=_DETAIL_HALF_WINDOW_SEC,
                 markers_sec=cuts,
                 playhead_sec=self._playhead,
                 selected_marker_sec=selected,
@@ -340,6 +416,9 @@ class ReviewApp(App[int]):
 
     def _refresh_playhead_only(self) -> None:
         """Move the cyan cursor without rebuilding waveform envelopes."""
+        if self._is_long_play() and self._playhead_outside_detail():
+            self._refresh_waveforms()
+            return
         overview = self.query_one("#overview", WaveformView)
         detail = self.query_one("#detail", DetailWaveformView)
         overview.playhead_sec = self._playhead
@@ -354,9 +433,10 @@ class ReviewApp(App[int]):
         if self._playhead is not None:
             hearing = self._player.hearing_window
             if hearing is not None:
+                kind = "loop" if self._player.is_looping else "play"
                 overview.label = (
                     f"overview — HEARING {_format_hear_clock(self._playhead)}  "
-                    f"(loop {_format_hear_clock(hearing[0])}–"
+                    f"({kind} {_format_hear_clock(hearing[0])}–"
                     f"{_format_hear_clock(hearing[1])}; cyan ▶)"
                 )
         overview.refresh()
@@ -393,8 +473,7 @@ class ReviewApp(App[int]):
         if hearing is not None and pos is not None:
             self._set_status(
                 f"Hearing {_format_hear_clock(pos)}  "
-                f"loop {_format_hear_clock(hearing[0])}–"
-                f"{_format_hear_clock(hearing[1])}  (space stop)"
+                f"{self._playback_status_suffix(hearing)}"
             )
 
     def _sync_track_editors(self) -> None:
@@ -501,7 +580,39 @@ class ReviewApp(App[int]):
 
     @on(WaveformView.CutMarkerClicked)
     def _cut_marker_clicked(self, event: WaveformView.CutMarkerClicked) -> None:
+        # Place playhead at the default loop-window start for this cut.
+        if self._player.is_playing:
+            self._player.stop()
+            self._stop_play_ui()
+        self._playhead = playhead_for_cut(
+            float(event.time_sec), duration_sec=self._show_duration_sec()
+        )
         self._select_cut(event.cut_index, status_prefix="Selected cut")
+
+    @on(WaveformView.SeekClicked)
+    def _waveform_seek_clicked(self, event: WaveformView.SeekClicked) -> None:
+        self._set_playhead(float(event.time_sec))
+
+    def _play_from(self, start_sec: float) -> None:
+        """Play from ``start_sec`` to end of show (no loop)."""
+        if self.source_audio is None or not self.source_audio.is_file():
+            self._set_status("No source audio for playback")
+            return
+        duration = self._show_duration_sec()
+        start = resolve_playback_start_sec(start_sec, duration_sec=duration)
+        if duration <= 0 or start >= duration:
+            self._set_status("At end of show")
+            return
+        self._playhead = start
+        self._player.play_segment(
+            self.source_audio, start_sec=start, end_sec=duration, loop=False
+        )
+        self._start_play_ui()
+        hearing = self._player.hearing_window or (start, duration)
+        self._set_status(
+            f"Hearing {_format_hear_clock(start)}  "
+            f"{self._playback_status_suffix(hearing)}"
+        )
 
     def _select_cut(self, cut_index: int, *, status_prefix: str = "Selected cut") -> None:
         cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
@@ -681,12 +792,28 @@ class ReviewApp(App[int]):
 
     def action_toggle_play(self) -> None:
         if self._player.is_playing:
+            pos = self._player.current_position_sec()
             self._player.stop()
             self._stop_play_ui()
-            self._set_status("Stopped")
+            if pos is not None:
+                self._playhead = float(pos)
             self._refresh_waveforms()
+            self._set_status(
+                f"Paused at {_format_hear_clock(self._playhead or 0.0)}"
+            )
             return
-        self.action_loop_cut()
+        cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
+        selected = (
+            cuts[self.selected_cut_index]
+            if cuts and 0 <= self.selected_cut_index < len(cuts)
+            else None
+        )
+        start = resolve_playback_start_sec(
+            self._playhead,
+            selected_cut_sec=selected,
+            duration_sec=self._show_duration_sec(),
+        )
+        self._play_from(start)
 
     def action_loop_cut(self) -> None:
         if self.source_audio is None or not self.source_audio.is_file():
@@ -696,7 +823,7 @@ class ReviewApp(App[int]):
         if not cuts:
             return
         cut = cuts[self.selected_cut_index]
-        duration = float(self.plan.get("duration_sec") or cuts[-1])
+        duration = self._show_duration_sec() or float(cuts[-1])
         start, end = loop_window_around_cut(
             cut, duration_sec=duration, half_window_sec=8.0
         )
@@ -708,7 +835,7 @@ class ReviewApp(App[int]):
         self._set_status(
             f"Hearing {_format_hear_clock(start)}  "
             f"loop {_format_hear_clock(start)}–{_format_hear_clock(end)}  "
-            "(space stop)"
+            "(space pause)"
         )
 
     def _report_playback_status(self) -> None:
@@ -723,8 +850,7 @@ class ReviewApp(App[int]):
             if hearing is not None:
                 self._set_status(
                     f"Hearing {_format_hear_clock(pos)}  "
-                    f"loop {_format_hear_clock(hearing[0])}–"
-                    f"{_format_hear_clock(hearing[1])}  (space stop)"
+                    f"{self._playback_status_suffix(hearing)}"
                 )
             else:
                 self._set_status("Playing — space to stop")
@@ -734,25 +860,16 @@ class ReviewApp(App[int]):
 
     def action_seek(self, delta: float) -> None:
         cuts = [float(c) for c in self.plan.get("cuts_sec") or []]
-        if not cuts:
-            return
-        # Seek by moving playhead and restarting a short one-shot.
-        if self._playhead is None:
-            self._playhead = cuts[self.selected_cut_index]
-        self._playhead = max(
-            0.0,
-            min(float(self.plan["duration_sec"]), self._playhead + float(delta)),
+        selected = (
+            cuts[self.selected_cut_index]
+            if cuts and 0 <= self.selected_cut_index < len(cuts)
+            else None
         )
-        if self.source_audio and self.source_audio.is_file():
-            self._player.play_segment(
-                self.source_audio,
-                start_sec=self._playhead,
-                end_sec=min(float(self.plan["duration_sec"]), self._playhead + 3.0),
-                loop=False,
-            )
-            self._start_play_ui()
-        self._refresh_waveforms()
-        self._set_status(f"Hearing {_format_hear_clock(self._playhead)}")
+        duration = self._show_duration_sec()
+        base = resolve_playback_start_sec(
+            self._playhead, selected_cut_sec=selected, duration_sec=duration
+        )
+        self._set_playhead(base + float(delta))
 
     def action_seek_back(self) -> None:
         self.action_seek(-2.0)

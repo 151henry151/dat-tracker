@@ -43,6 +43,23 @@ def test_loop_window_clamps_at_show_edges():
     assert end == 100.0
 
 
+def test_playhead_for_cut_defaults_to_loop_window_start():
+    from dat_tracker.audio_playback import playhead_for_cut
+
+    assert playhead_for_cut(50.0, duration_sec=100.0) == pytest.approx(42.0)
+    assert playhead_for_cut(2.0, duration_sec=100.0) == 0.0
+
+
+def test_resolve_playback_start_sec():
+    from dat_tracker.audio_playback import resolve_playback_start_sec
+
+    assert resolve_playback_start_sec(42.5, selected_cut_sec=10.0, duration_sec=100.0) == 42.5
+    assert resolve_playback_start_sec(None, selected_cut_sec=10.0, duration_sec=100.0) == 10.0
+    assert resolve_playback_start_sec(None, selected_cut_sec=None, duration_sec=100.0) == 0.0
+    assert resolve_playback_start_sec(150.0, selected_cut_sec=0.0, duration_sec=100.0) == 100.0
+    assert resolve_playback_start_sec(-5.0, selected_cut_sec=0.0, duration_sec=100.0) == 0.0
+
+
 def test_clamp_play_range():
     assert clamp_play_range(-1.0, 5.0, duration_sec=10.0) == (0.0, 5.0)
     assert clamp_play_range(8.0, 12.0, duration_sec=10.0) == (8.0, 10.0)

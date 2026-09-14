@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Play review TUI audio via ``ffplay`` (ffmpeg) instead of PortAudio/sounddevice so Space/loop is audible on typical Linux desktops.
 - Advance a full-height cyan hearing cursor on overview/detail while audio plays; status shows the exact time and loop window.
 - Keep the detail waveform locked to the hearing loop during playback and only move the cyan cursor (~40 Hz) so scrubbing looks smooth.
+- Allow clicking empty waveform space to place the cyan playhead (Space plays/pauses from there to end of show; ``l`` still loops the selected cut); long play-to-end follows the cursor in the detail window.
+- Place the cyan playhead at the cut loop-window start when clicking a yellow cut marker.
 - Draw silence baseline ``·`` in the same bright white as braille waveform dots (not dim cyan).
 - Smooth review waveforms with max-pooled columns and half-block tops; use compact package Inputs (default height-3 Inputs were clipped to 1 row — values invisible and not editable); sync package values on mount and show two fields per row.
 - Make cut editing click-driven: click a yellow cut on the overview/detail waveform to select it, then ←/→ (±0.1s; shift ±1s; ctrl ±0.01s) to nudge; `[` / `]` step between cuts.
