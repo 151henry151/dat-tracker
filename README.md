@@ -134,7 +134,7 @@ These steps assume you are comfortable opening a **terminal**: Terminal.app on m
 | **Python 3.11+** | Runs the tracker |
 | **ffmpeg** (includes **ffprobe** on normal installs) | Decode/cut audio, silence detect, durations |
 | **Git** (recommended) | Clone this repository |
-| **Gemini API key** | Sparse audio listening (set in a local `.env` file) |
+| **Gemini API key** | Sparse audio listening + companion text extract (free to create; see “Configure your Gemini API key” below) |
 | Disk space | Continuous FLACs and work files are large; plan for tens of GB if you pull calibration or a full dump |
 
 The Python package **`internetarchive`** (Archive.org’s official library / `ia` CLI) is installed automatically when you install this project with `pip`. You do **not** install it separately unless you want it system-wide for other work.
@@ -284,8 +284,17 @@ A command line interface to Archive.org.
 
 ### 4. Configure your Gemini API key
 
-1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey). For more than a handful of runs per day, enable billing / prepaid credits on that project (free-tier request caps are easy to hit).
-2. Copy the example env file and edit it:
+Tracking and review hydrate call Google’s **Gemini API**. You do **not** need to open the full Google Cloud Console or set up billing just to create a key and try the app.
+
+#### Get a key (about two minutes)
+
+1. Sign in with a normal Google account at **[Google AI Studio → API keys](https://aistudio.google.com/apikey)**.
+2. Accept the Gemini API terms if prompted. New users usually get a default project and can click **Create API key**.
+3. Copy the key. Keep it private (treat it like a password).
+
+You do **not** need a separate “Google Cloud project tour,” Vertex AI setup, or billing account for that free-tier key. AI Studio attaches a lightweight project for you.
+
+#### Put the key in `.env`
 
 **macOS / Linux:**
 
@@ -299,14 +308,27 @@ cp .env.example .env
 Copy-Item .env.example .env
 ```
 
-3. Open `.env` in a text editor and set:
+Open `.env` in a text editor and set:
 
 ```text
 GEMINI_API_KEY=your_key_here
 DAT_TRACKER_LLM_MODEL=gemini-3.6-flash
 ```
 
-Never commit `.env` (it is gitignored).
+Never commit `.env` (it is gitignored). You can also export `GEMINI_API_KEY` in your shell instead of using a file.
+
+#### Free tier vs paying Google
+
+| Question | Short answer |
+|----------|----------------|
+| Can I try without a credit card? | **Yes.** New Gemini API projects start on the **Free Tier** ([billing overview](https://ai.google.dev/gemini-api/docs/billing)). |
+| Are tokens free on Free Tier? | **Yes** for models that still list a Free Tier on the [pricing page](https://ai.google.dev/gemini-api/docs/pricing) (Flash-class models we default to usually do). |
+| What’s the catch? | **Low rate limits** (requests per minute / per day). Google no longer publishes a fixed public table; check **[AI Studio → Rate limits](https://aistudio.google.com/)** for *your* project. Community measurements for Flash often land around a handful of RPM and on the order of **~20 requests/day**—enough to poke at the app, often **not** enough to finish a full sparse-listen track of a long show in one day. |
+| Do I need Cloud Console billing to try? | **No** for basic text + Flash listening on Free Tier. |
+| When should I enable billing? | When you hit `429` / quota errors, want to track several shows per day, or want higher limits. Paid setup is done from AI Studio (**Set up billing** on the project). Newer accounts may be asked to **prepay a small credit balance** (Google documents a **~$5 minimum** for Prepay). See [billing](https://ai.google.dev/gemini-api/docs/billing) and [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits). |
+| What about “search the web for missing venue”? | **Google Search grounding is not available on Free Tier** for current Gemini 3.x Flash models ([pricing](https://ai.google.dev/gemini-api/docs/pricing)). Companion extract still works from the `.txt` alone; web research for blank venue/city/state needs a **paid** project. Without billing, that research step is skipped/soft-fails and heuristic/catalog fill remains. |
+
+**Practical expectation:** a free key is easy and is enough to install, configure, and run a little. Serious daily tracking of many DAT shows usually means linking billing (and optionally setting a spend cap in AI Studio) so you are not blocked mid-show by daily quota.
 
 ### 5. Track one continuous show
 

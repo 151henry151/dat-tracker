@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Expand README Gemini API key setup: AI Studio steps, Free Tier vs billing, and that Google Search grounding needs paid tier.
 - Treat heuristic show.txt parsing as an offline fallback only after LLM extract fails (do not soft-fill over a successful LLM result).
 - Harden offline show.txt parsing for blank-line headers, post-setlist Source/Transfer lines, and ``master/playback`` lineage splits.
 - Remap track titles/types after cut insert/delete by time overlap (not track index); keep a song title on only the best-overlapping fragment after a split.
