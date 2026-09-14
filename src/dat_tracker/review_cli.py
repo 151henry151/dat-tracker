@@ -16,9 +16,6 @@ from dat_tracker.review_discover import (
 from dat_tracker.review_hydrate import (
     hydrate_plan_from_companions,
     hydrate_plan_from_notes,
-    hydrate_titles_from_published_setlist,
-    reconcile_track_count_to_published_setlist,
-    seed_package_metadata,
 )
 from dat_tracker.review_package_polish import polish_package_metadata
 from dat_tracker.review_plan import accept_all_plan_file, migrate_tracking_plan
