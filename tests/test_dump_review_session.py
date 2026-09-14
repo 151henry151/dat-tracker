@@ -102,7 +102,7 @@ def test_session_tracks_untracked_then_opens_review(tmp_path: Path):
             date="2000-01-02",
         )
 
-    def fake_prepare(self):  # noqa: ANN001
+    def fake_prepare(self, on_progress=None):  # noqa: ANN001
         return plan_path, plan, flac
 
     app = ReviewSessionApp(

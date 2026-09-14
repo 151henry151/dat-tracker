@@ -64,6 +64,7 @@ Finished packages land under `data/out/<show-id>/` when you run from a project c
 **Tips**
 
 - First track of a long FLAC can take **many minutes** on CPU (speech transcription). The screen shows live progress and elapsed time so it does not look hung.
+- When a dump show has no companion ``.txt``, package fields still seed from the FLAC filename and folder names (date, artists, festival), Dave W / Brian H collection defaults, and — when a sibling J-card photo is present — Gemini vision of that image.
 - You still need **disk space** for work files and exported tracks.
 - Press **`q`** in review to return to the show list (you do not have to quit the whole app).
 

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dat_tracker.catalog_io import load_catalog
+from dat_tracker.dump_metadata import parse_artists_from_stem, parse_date_from_stem
 from dat_tracker.review_discover import (
     ReviewableShow,
     discover_reviewable_shows,
@@ -14,6 +15,13 @@ from dat_tracker.review_discover import (
     resolve_show_for_review,
     resolve_source_audio,
 )
+
+
+def _artist_date_from_stem(stem: str) -> tuple[str | None, str | None]:
+    artists = parse_artists_from_stem(stem)
+    artist = " > ".join(artists) if artists else None
+    date = parse_date_from_stem(stem)
+    return artist, date
 
 
 def last_dump_root() -> Path | None:
@@ -156,6 +164,7 @@ def discover_dump_shows(
             resolved = flac
 
         linked = by_source.get(resolved)
+        dump_artist, dump_date = _artist_date_from_stem(flac.stem)
         if linked is not None:
             shows.append(
                 ReviewableShow(
@@ -168,8 +177,8 @@ def discover_dump_shows(
                     work_dir=linked.work_dir,
                     needs_tracking=False,
                     relative_path=rel,
-                    artist=(row or {}).get("artist") or linked.artist,
-                    date=(row or {}).get("date") or linked.date,
+                    artist=(row or {}).get("artist") or linked.artist or dump_artist,
+                    date=(row or {}).get("date") or linked.date or dump_date,
                 )
             )
             seen_ids.add(linked.show_id)
@@ -195,8 +204,8 @@ def discover_dump_shows(
                         work_dir=found.work_dir,
                         needs_tracking=False,
                         relative_path=rel,
-                        artist=(row or {}).get("artist"),
-                        date=(row or {}).get("date"),
+                        artist=(row or {}).get("artist") or found.artist or dump_artist,
+                        date=(row or {}).get("date") or found.date or dump_date,
                     )
                 )
                 seen_ids.add(found.show_id)
@@ -216,8 +225,8 @@ def discover_dump_shows(
                 work_dir=work_show_dir,
                 needs_tracking=True,
                 relative_path=rel,
-                artist=(row or {}).get("artist"),
-                date=(row or {}).get("date"),
+                artist=(row or {}).get("artist") or dump_artist,
+                date=(row or {}).get("date") or dump_date,
             )
         )
         seen_ids.add(show_id)

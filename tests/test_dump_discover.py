@@ -163,6 +163,29 @@ def test_discover_links_plan_by_source_path_even_if_show_id_differs(tmp_path: Pa
     assert shows[0].needs_tracking is False
 
 
+def test_discover_seeds_artist_date_from_filename(tmp_path: Path):
+    root = tmp_path
+    (root / "catalog").mkdir()
+    (root / "catalog" / "shows.json").write_text(
+        json.dumps({"schema_version": "1.0.0", "shows": []})
+    )
+    dump = root / "dump"
+    flac = (
+        dump
+        / "Brian H Flacs Wave 2"
+        / "Huck Finn Festival - April 2003"
+        / "06132003_HF_01-McNasty→Shiflett→BGBrethren.flac"
+    )
+    flac.parent.mkdir(parents=True)
+    flac.write_bytes(b"f")
+    shows = discover_dump_shows(dump, project_root=root)
+    assert len(shows) == 1
+    assert shows[0].date == "2003-06-13"
+    assert shows[0].artist is not None
+    assert "McNasty" in shows[0].artist
+    assert "Bluegrass Brethren" in shows[0].artist
+
+
 def test_default_dump_root_prefers_extracted_with_flacs(tmp_path: Path):
     extracted = tmp_path / "data" / "raw" / "extracted" / "Dave W Flacs"
     extracted.mkdir(parents=True)

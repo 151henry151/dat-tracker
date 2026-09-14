@@ -39,6 +39,8 @@ def prepare_plan(
     venue: str | None = None,
     city: str | None = None,
     state: str | None = None,
+    source_audio: Path | None = None,
+    dump_root: Path | None = None,
     on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     from dat_tracker.progress_util import emit_progress, progress_heartbeat
@@ -62,6 +64,8 @@ def prepare_plan(
             venue=venue,
             city=city,
             state=state,
+            source_audio=source_audio,
+            dump_root=dump_root,
         )
     with progress_heartbeat(
         on_progress,
@@ -128,6 +132,7 @@ def run_interactive_review(
         venue=venue,
         city=city,
         state=state,
+        source_audio=source_audio,
     )
     source = _resolve_source(
         plan=plan,
@@ -363,8 +368,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.accept_all:
+        raw = json.loads(plan_path.read_text())
+        source = args.source or source_from_show
+        if source is None:
+            source = _resolve_source(
+                plan=raw,
+                explicit=None,
+                project_root=project_root,
+                fallback=source_from_show,
+            )
         prepared = prepare_plan(
-            json.loads(plan_path.read_text()),
+            raw,
             project_root=project_root,
             artist=args.artist,
             date=args.date,
@@ -372,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
             venue=args.venue,
             city=args.city,
             state=args.state,
+            source_audio=source,
         )
         plan_path.write_text(json.dumps(prepared, indent=2) + "\n")
         approved = accept_all_plan_file(plan_path, approved_by=args.approved_by)

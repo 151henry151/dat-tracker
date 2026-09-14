@@ -578,20 +578,26 @@ def run_track_show(
 
     progress("Writing tracking plan…", 0.92)
     plan = migrate_tracking_plan(plan)
-    pkg = plan.setdefault("package", {})
-    pkg.setdefault("artist", artist)
-    pkg.setdefault("date", date)
-    pkg.setdefault("tracker", tracker)
-    if venue is not None:
-        pkg.setdefault("venue", venue)
-    if city is not None:
-        pkg.setdefault("city", city)
-    if state is not None:
-        pkg.setdefault("state", state)
-    if source_line is not None:
-        pkg.setdefault("source", source_line)
-    if transfer is not None:
-        pkg.setdefault("transfer", transfer)
+    from dat_tracker.review_hydrate import seed_package_metadata
+
+    # Fill null package keys from CLI args and dump path/filename heuristics.
+    # J-card vision runs later during review prepare (needs Gemini + time).
+    plan = seed_package_metadata(
+        plan,
+        artist=artist,
+        date=date,
+        tracker=tracker,
+        venue=venue,
+        city=city,
+        state=state,
+        source=source_line,
+        transfer=transfer,
+        project_root=root,
+        source_audio=source_audio,
+        use_llm_extract=False,
+        allow_web_research=False,
+        use_jcard_vision=False,
+    )
     paths["plan"].write_text(json.dumps(plan, indent=2) + "\n")
     from dat_tracker.review_baseline import write_as_delivered_snapshot
 

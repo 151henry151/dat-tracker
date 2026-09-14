@@ -776,8 +776,11 @@ def hydrate_plan_from_companions(
     venue: str | None = None,
     city: str | None = None,
     state: str | None = None,
+    source_audio: Path | None = None,
+    dump_root: Path | None = None,
+    use_jcard_vision: bool = True,
 ) -> dict[str, Any]:
-    """Reconcile/hydrate setlist + seed package from one companion extract."""
+    """Reconcile/hydrate setlist + seed package from companions and dump sources."""
     from dat_tracker.review_package_extract import (
         _EXTRACT_NOTE,
         companion_extract_for_show,
@@ -814,6 +817,11 @@ def hydrate_plan_from_companions(
         state=state,
         project_root=root,
         calibration_dir=calibration_dir,
+        source_audio=source_audio,
+        dump_root=dump_root,
+        use_llm_extract=use_llm,
+        allow_web_research=allow_web_research,
+        use_jcard_vision=use_jcard_vision,
         companion_fields=bundle,
     )
 
@@ -831,17 +839,26 @@ def seed_package_metadata(
     transfer: str | None = None,
     project_root: Path | None = None,
     calibration_dir: Path | None = None,
+    source_audio: Path | None = None,
+    dump_root: Path | None = None,
     use_llm_extract: bool = True,
     allow_web_research: bool = True,
+    use_jcard_vision: bool = True,
     llm_extract_fn: Any | None = None,
     llm_research_fn: Any | None = None,
     companion_fields: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Fill empty package fields from CLI, companions (LLM), catalog, and show_id.
+    """Fill empty package fields from every available dump / companion source.
+
+    Preference order for each field (first non-empty wins):
+    CLI/operator args → J-card vision → companion text LLM → dump path/filename
+    heuristics → catalog → ISO date in show_id → operator defaults.
 
     Pass ``companion_fields`` from ``companion_extract_for_show`` to reuse a
     single LLM extract (package + setlist) without a second API call.
     """
+    from dat_tracker.dump_metadata import infer_dump_package_fields
+    from dat_tracker.jcard_extract import _JCARD_NOTE, jcard_extract_for_audio
     from dat_tracker.review_package_extract import (
         _EXTRACT_NOTE,
         _RESEARCH_NOTE,
@@ -855,8 +872,42 @@ def seed_package_metadata(
 
     notes_list = [str(n) for n in (plan.get("notes") or [])]
     already_extracted = _EXTRACT_NOTE in notes_list
+    already_jcard = _JCARD_NOTE in notes_list
     ran_llm_extract = False
     ran_web_research = False
+    ran_jcard = False
+
+    audio = Path(source_audio) if source_audio is not None else None
+    if audio is None and plan.get("source_path"):
+        candidate = Path(str(plan["source_path"]))
+        if candidate.is_file():
+            audio = candidate
+        else:
+            alt = root / candidate
+            if alt.is_file():
+                audio = alt
+
+    jcard_fields: dict[str, Any] = {}
+    if (
+        audio is not None
+        and bool(use_jcard_vision)
+        and bool(use_llm_extract)
+        and not already_jcard
+    ):
+        jcard_fields = jcard_extract_for_audio(
+            audio,
+            use_llm=True,
+            project_root=root,
+        )
+        ran_jcard = bool(jcard_fields)
+
+    dump_fields: dict[str, Any] = {}
+    if audio is not None:
+        dump_fields = infer_dump_package_fields(
+            audio,
+            dump_root=dump_root,
+            show_id=str(plan.get("show_id") or "") or None,
+        )
 
     if companion_fields is not None:
         published = {
@@ -891,11 +942,18 @@ def seed_package_metadata(
     def _unset(key: str, cur: Any) -> bool:
         if cur in (None, ""):
             return True
+        text = str(cur).strip()
+        lower = text.lower()
         # Earlier seeds wrote the soft builtin; allow a real operator default to win.
-        if key == "tracker" and str(cur).strip().lower() in {
+        if key == "tracker" and lower in {
             "dat-tracker",
             "your name",
         }:
+            return True
+        # Dump-track placeholders must not block later dump / J-card heuristics.
+        if key == "artist" and lower in {"unknown artist", "unknown"}:
+            return True
+        if key == "date" and text in {"1970-01-01", "0000-00-00"}:
             return True
         return False
 
@@ -904,12 +962,28 @@ def seed_package_metadata(
         if not _unset(key, cur):
             return
         for cand in candidates:
-            if cand not in (None, ""):
-                pkg[key] = cand
-                return
+            if cand in (None, ""):
+                continue
+            # Skip dump-track placeholders when offered as CLI / soft candidates.
+            if key == "artist" and str(cand).strip().lower() in {
+                "unknown artist",
+                "unknown",
+            }:
+                continue
+            if key == "date" and str(cand).strip() in {"1970-01-01", "0000-00-00"}:
+                continue
+            pkg[key] = cand
+            return
 
     cat = catalog or {}
-    _set("artist", artist, published.get("artist"), cat.get("artist"))
+    _set(
+        "artist",
+        artist,
+        jcard_fields.get("artist"),
+        published.get("artist"),
+        dump_fields.get("artist"),
+        cat.get("artist"),
+    )
     date_from_id = None
     m = _DATE_IN_ID.search(show_id)
     if m:
@@ -917,32 +991,91 @@ def seed_package_metadata(
     _set(
         "date",
         date,
+        jcard_fields.get("date"),
         published.get("date"),
+        dump_fields.get("date"),
         cat.get("date"),
         date_from_id,
     )
     _set("tracker", tracker, defaults.get("tracker"))
-    _set("venue", venue, published.get("venue"), cat.get("venue"))
-    _set("city", city, published.get("city"), cat.get("city"))
-    _set("state", state, published.get("state"), cat.get("state"))
-    _set("source", source, published.get("source"), cat.get("source"))
-    _set("transfer", transfer, published.get("transfer"))
-    _set("transferer", published.get("transferer"))
-    _set("set_label", published.get("set_label"), defaults.get("set_label"))
-    _set("notes", published.get("notes"), cat.get("notes"))
+    _set(
+        "venue",
+        venue,
+        jcard_fields.get("venue"),
+        published.get("venue"),
+        dump_fields.get("venue"),
+        cat.get("venue"),
+    )
+    _set(
+        "city",
+        city,
+        jcard_fields.get("city"),
+        published.get("city"),
+        dump_fields.get("city"),
+        cat.get("city"),
+    )
+    _set(
+        "state",
+        state,
+        jcard_fields.get("state"),
+        published.get("state"),
+        dump_fields.get("state"),
+        cat.get("state"),
+    )
+    _set(
+        "source",
+        source,
+        jcard_fields.get("source"),
+        published.get("source"),
+        dump_fields.get("source"),
+        cat.get("source"),
+    )
+    _set(
+        "transfer",
+        transfer,
+        jcard_fields.get("transfer"),
+        published.get("transfer"),
+        dump_fields.get("transfer"),
+    )
+    _set(
+        "transferer",
+        jcard_fields.get("transferer"),
+        published.get("transferer"),
+        dump_fields.get("transferer"),
+    )
+    _set(
+        "set_label",
+        jcard_fields.get("set_label"),
+        published.get("set_label"),
+        dump_fields.get("set_label"),
+        defaults.get("set_label"),
+    )
+    _set(
+        "notes",
+        jcard_fields.get("notes"),
+        published.get("notes"),
+        dump_fields.get("notes"),
+        cat.get("notes"),
+    )
     if not pkg.get("collection_subjects"):
-        subjects = published.get("collection_subjects")
+        subjects = (
+            jcard_fields.get("collection_subjects")
+            or published.get("collection_subjects")
+            or dump_fields.get("collection_subjects")
+        )
         if not subjects and cat.get("collection"):
             subjects = [cat["collection"]]
         if subjects:
             pkg["collection_subjects"] = list(subjects)
 
-    if ran_llm_extract or ran_web_research:
+    if ran_llm_extract or ran_web_research or ran_jcard:
         notes = [str(n) for n in (plan.get("notes") or [])]
         if ran_llm_extract and _EXTRACT_NOTE not in notes:
             notes.append(_EXTRACT_NOTE)
         if ran_web_research and _RESEARCH_NOTE not in notes:
             notes.append(_RESEARCH_NOTE)
+        if ran_jcard and _JCARD_NOTE not in notes:
+            notes.append(_JCARD_NOTE)
         plan["notes"] = notes
 
     plan["package"] = pkg

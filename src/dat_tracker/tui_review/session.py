@@ -71,6 +71,7 @@ def ensure_show_tracked(
     review = doc.get("review") if isinstance(doc.get("review"), dict) else {}
     tracks = doc.get("tracks") if isinstance(doc.get("tracks"), list) else []
     duration = doc.get("duration_sec")
+    pkg = doc.get("package") if isinstance(doc.get("package"), dict) else {}
     return ReviewableShow(
         show_id=str(doc.get("show_id") or show.show_id),
         plan_path=plan_path,
@@ -81,8 +82,8 @@ def ensure_show_tracked(
         work_dir=plan_path.parent,
         needs_tracking=False,
         relative_path=show.relative_path,
-        artist=show.artist,
-        date=show.date,
+        artist=(pkg.get("artist") or show.artist),
+        date=(pkg.get("date") or show.date),
     )
 
 
@@ -120,6 +121,7 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
         city: str | None = None,
         state: str | None = None,
         source_override: Path | None = None,
+        dump_root: Path | None = None,
     ) -> None:
         super().__init__()
         self.show = show
@@ -132,6 +134,7 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
         self.city = city
         self.state = state
         self.source_override = source_override
+        self.dump_root = Path(dump_root) if dump_root is not None else None
         self._started = 0.0
         self._elapsed_timer = None
 
@@ -146,7 +149,7 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
             yield Static("0%", id="prep-pct")
             yield Static("Elapsed: 0s", id="prep-elapsed")
             yield Static(
-                "Companion Gemini extract and package polish can take a minute.",
+                "Companion / J-card Gemini extract and package polish can take a minute.",
                 id="prep-note",
             )
         yield Footer()
@@ -179,9 +182,17 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
     ) -> tuple[Path, dict[str, Any], Path | None]:
         # Lazy import avoids a review_cli ↔ session cycle at module load.
         from dat_tracker.review_cli import _resolve_source, prepare_plan
+        from dat_tracker.review_plan import migrate_tracking_plan
 
         plan_path = self.show.plan_path
         raw = json.loads(plan_path.read_text())
+        # Resolve audio before seed so dump path / J-card heuristics can run.
+        source = _resolve_source(
+            plan=migrate_tracking_plan(raw),
+            explicit=self.source_override,
+            project_root=self.project_root,
+            fallback=self.show.source_path,
+        )
         plan = prepare_plan(
             raw,
             project_root=self.project_root,
@@ -191,13 +202,9 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
             venue=self.venue,
             city=self.city,
             state=self.state,
+            source_audio=source,
+            dump_root=self.dump_root,
             on_progress=on_progress,
-        )
-        source = _resolve_source(
-            plan=plan,
-            explicit=self.source_override,
-            project_root=self.project_root,
-            fallback=self.show.source_path,
         )
         return plan_path, plan, source
 
@@ -814,6 +821,7 @@ class ReviewSessionApp(App[int]):
                 city=self.city,
                 state=self.state,
                 source_override=self.source_override,
+                dump_root=self.dump_root,
             ),
             self._on_prepared,
         )

@@ -9,12 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Seed package metadata from dump filenames, festival folders, collection
+  lineage (Dave W / Brian H Read Me defaults), and sibling J-card photos via
+  Gemini vision when companion ``.txt`` files are missing.
 - Bundle ``ffmpeg`` / ``ffprobe`` (and ``ffplay`` when available) into
   ``dat-review`` release builds, and resolve tools via bundled path, env, or
   ``PATH``.
 
 ### Changed
 
+- Fill blank ``package`` fields during tracking and review prepare even when
+  keys already exist as ``null``, and replace dump-track placeholders
+  (``Unknown Artist`` / ``1970-01-01``) with path and J-card heuristics.
 - Restructure the README so end-user download and try-out steps come first, with
   developer install and background below.
 - Document that GitHub Release binaries no longer require a separate ffmpeg
