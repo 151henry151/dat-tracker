@@ -32,11 +32,62 @@ _BANTER_HINT = re.compile(
     re.IGNORECASE,
 )
 _DATE_ISO = re.compile(r"^(20\d{2}|19\d{2})-(\d{2})-(\d{2})\s*$")
+_DATE_ISO_ANY = re.compile(r"(20\d{2}|19\d{2})-(\d{2})-(\d{2})")
 _DATE_MDY = re.compile(
     r"^(\d{1,2})[-/](\d{1,2})[-/](20\d{2}|19\d{2})\s*$"
 )
+_DATE_MONTH_NAME = re.compile(
+    r"^(January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)\s+(\d{1,2}),?\s+(20\d{2}|19\d{2})\b",
+    re.IGNORECASE,
+)
+_MONTH_NUM = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
 _CITY_STATE = re.compile(
     r"^(.+?),\s*([A-Za-z.]{2,}(?:\.[A-Za-z.]{1,})?)\s*$"
+)
+_VENUE_HINT = re.compile(
+    r"\b(stage|theater|theatre|center|centre|hall|ranch|"
+    r"amphitheatre|amphitheater|club|cafe|caf[eé]|auditorium|"
+    r"pavilion|park|grounds)\b",
+    re.IGNORECASE,
+)
+_MASTER_PLAYBACK = re.compile(
+    r"^(.*?)\bmaster\s*/\s*playback\s*:\s*(.+)$",
+    re.IGNORECASE,
+)
+_CAPTURE_THEN_TRANSFER = re.compile(
+    r"^(.+?(?:\bDAT\b|\bPCM-M1\b|\bCass/?\d*\b|\bCassette\b)[^\>]*)\s*>\s*(.+)$",
+    re.IGNORECASE,
+)
+_TRANSFERER_PAREN = re.compile(
+    r"\(?\s*(?:recorded\s*(?:&\s*|and\s+)?transferred|transferred)\s+by\s+"
+    r"([^)\n]+?)\)?\s*$",
+    re.IGNORECASE,
+)
+_TRANSFERER_LABEL = re.compile(
+    r"^transferred\s+by\s*:?\s*(.+)$",
+    re.IGNORECASE,
+)
+_LABELED_META = (
+    "source:",
+    "transfer:",
+    "transferred by:",
+    "taped by:",
+    "recorded by:",
+    "tracked",
 )
 _TRACKLIST_START = re.compile(
     r"^(disc\s+\d+|set\s+\d+|set\s+[ivxlcdm]+|one\s+set|\d{1,2}\.\s*\S)",
@@ -203,16 +254,55 @@ def lookup_catalog_show(
     *,
     project_root: Path | None = None,
 ) -> dict[str, Any] | None:
+    """Look up a show in tier-B calibration catalog, then ``catalog/shows.json``."""
     root = project_root or Path.cwd()
-    path = root / "catalog" / "calibration_tier_b.json"
-    if not path.is_file():
-        return None
     import json
 
-    doc = json.loads(path.read_text())
-    for row in doc.get("shows") or []:
-        if str(row.get("id")) == show_id:
-            return dict(row)
+    for rel in (
+        "catalog/calibration_tier_b.json",
+        "catalog/shows.json",
+    ):
+        path = root / rel
+        if not path.is_file():
+            continue
+        doc = json.loads(path.read_text())
+        for row in doc.get("shows") or []:
+            if str(row.get("id")) == show_id:
+                return dict(row)
+    return None
+
+
+def resolve_companion_dirs(
+    show_id: str,
+    *,
+    project_root: Path | None = None,
+) -> list[Path]:
+    """Return existing companion dirs for a show (calibration, then ground truth)."""
+    root = project_root or Path.cwd()
+    sid = str(show_id)
+    candidates = [
+        root / "data" / "calibration" / sid,
+        root / "data" / "ground_truth" / sid,
+        root / "data" / "calibration_tier_a" / sid,
+    ]
+    return [p for p in candidates if p.is_dir()]
+
+
+def find_companion_show_txt(
+    show_id: str,
+    *,
+    project_root: Path | None = None,
+    calibration_dir: Path | None = None,
+) -> Path | None:
+    """Find the best published info ``.txt`` across companion directories."""
+    if calibration_dir is not None:
+        found = find_published_show_txt(Path(calibration_dir))
+        if found is not None:
+            return found
+    for directory in resolve_companion_dirs(show_id, project_root=project_root):
+        found = find_published_show_txt(directory)
+        if found is not None:
+            return found
     return None
 
 
@@ -228,23 +318,93 @@ def _normalize_state(raw: str) -> str:
 
 
 def _parse_date_line(line: str) -> str | None:
-    m = _DATE_ISO.match(line.strip())
+    text = line.strip()
+    m = _DATE_ISO.match(text)
     if m:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
-    m = _DATE_MDY.match(line.strip())
+    m = _DATE_MDY.match(text)
     if m:
         month = int(m.group(1))
+        day = int(m.group(2))
+        year = m.group(3)
+        return f"{year}-{month:02d}-{day:02d}"
+    # Jon headers: ``August 2, 2002 (2002-08-02)``
+    m = _DATE_ISO_ANY.search(text)
+    if m and "(" in text:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    m = _DATE_MONTH_NAME.match(text)
+    if m:
+        month = _MONTH_NUM[m.group(1).lower()]
         day = int(m.group(2))
         year = m.group(3)
         return f"{year}-{month:02d}-{day:02d}"
     return None
 
 
+def _looks_like_lineage(line: str) -> bool:
+    lower = line.lower()
+    if len(line) < 8:
+        return False
+    if any(lower.startswith(p) for p in _LABELED_META):
+        return True
+    return any(
+        tok in lower for tok in (">", "dat", "sbd", "aud", "matrix", "flac")
+    )
+
+
+def _apply_lineage_line(fields: dict[str, Any], ln: str) -> None:
+    """Fill source/transfer/transferer from one lineage or credit line."""
+    lower = ln.lower()
+    m_xfer = _TRANSFERER_PAREN.search(ln)
+    if m_xfer and not fields.get("transferer"):
+        fields["transferer"] = m_xfer.group(1).strip()
+    m_lab = _TRANSFERER_LABEL.match(ln)
+    if m_lab and not fields.get("transferer"):
+        fields["transferer"] = m_lab.group(1).strip()
+
+    mp = _MASTER_PLAYBACK.match(ln)
+    if mp:
+        src = mp.group(1).strip().rstrip(">").strip()
+        xfer = mp.group(2).strip()
+        if src and not fields.get("source"):
+            fields["source"] = src
+        if xfer and not fields.get("transfer"):
+            fields["transfer"] = xfer
+        return
+
+    if not fields.get("source"):
+        cap = _CAPTURE_THEN_TRANSFER.match(ln)
+        if cap and "flac" in lower:
+            fields["source"] = cap.group(1).strip()
+            if not fields.get("transfer"):
+                fields["transfer"] = cap.group(2).strip()
+        else:
+            fields["source"] = ln
+        return
+
+    if not fields.get("transfer") and "flac" in lower:
+        fields["transfer"] = ln
+
+
+def _pick_venue(venue_parts: list[str]) -> tuple[str | None, str | None]:
+    if not venue_parts:
+        return None, None
+    hinted = [p for p in venue_parts if _VENUE_HINT.search(p)]
+    if hinted:
+        venue = hinted[-1]
+        notes_parts = [p for p in venue_parts if p != venue]
+        notes = "; ".join(notes_parts) if notes_parts else None
+        return venue, notes
+    venue = venue_parts[0]
+    notes = "; ".join(venue_parts[1:]) if len(venue_parts) > 1 else None
+    return venue, notes
+
+
 def parse_published_show_txt(path: Path) -> dict[str, Any]:
     """Best-effort parse of a published etree/info ``.txt`` header.
 
-    Expects a Jon/etree-ish header: artist, venue lines, city/state, date,
-    then a source/transfer lineage line. Missing pieces are omitted.
+    Supports both Jon order (artist → date → venue → city/state) and
+    venue-before-date layouts. Missing pieces are omitted.
     """
     text = Path(path).read_text(errors="replace")
     lines = [ln.strip() for ln in text.splitlines()]
@@ -256,18 +416,17 @@ def parse_published_show_txt(path: Path) -> dict[str, Any]:
     body_start = 0
     for i, ln in enumerate(lines):
         if not ln:
-            if header:
-                body_start = i + 1
-                break
+            # Blank lines are soft separators (Jam Shack / multi-block headers).
             continue
         if _TRACKLIST_START.match(ln) and header:
             body_start = i
             break
-        if _parse_date_line(ln):
-            header.append(ln)
-            body_start = i + 1
-            while body_start < len(lines) and not lines[body_start]:
-                body_start += 1
+        lower = ln.lower()
+        if header and any(lower.startswith(p) for p in _LABELED_META):
+            body_start = i
+            break
+        if header and _looks_like_lineage(ln):
+            body_start = i
             break
         header.append(ln)
     else:
@@ -279,39 +438,49 @@ def parse_published_show_txt(path: Path) -> dict[str, Any]:
     fields["artist"] = header[0]
     rest = header[1:]
     date = None
-    if rest and _parse_date_line(rest[-1]):
-        date = _parse_date_line(rest[-1])
-        rest = rest[:-1]
+    kept: list[str] = []
+    for ln in rest:
+        parsed = _parse_date_line(ln)
+        if parsed and date is None:
+            date = parsed
+            continue
+        kept.append(ln)
     if date:
         fields["date"] = date
 
     city = None
     state = None
     venue_parts: list[str] = []
-    for ln in rest:
+    for ln in kept:
         m = _CITY_STATE.match(ln)
         if m and city is None:
             city = m.group(1).strip()
             state = _normalize_state(m.group(2))
             continue
         venue_parts.append(ln)
-    if venue_parts:
-        fields["venue"] = venue_parts[0]
-        if len(venue_parts) > 1:
-            fields["notes"] = "; ".join(venue_parts[1:])
+    venue, venue_notes = _pick_venue(venue_parts)
+    if venue:
+        fields["venue"] = venue
+    if venue_notes:
+        fields["notes"] = venue_notes
     if city:
         fields["city"] = city
     if state:
         fields["state"] = state
 
-    for ln in lines[body_start:]:
+    # Labeled Source/Transfer may appear after the setlist — scan the whole file.
+    for ln in lines:
         if not ln:
             continue
-        if _TRACKLIST_START.match(ln):
-            break
         lower = ln.lower()
-        if lower.startswith("transferred by:"):
-            fields["transferer"] = ln.split(":", 1)[1].strip()
+        if lower.startswith("transferred by"):
+            # "Transferred by: X" or "Transferred by X"
+            if ":" in ln:
+                fields["transferer"] = ln.split(":", 1)[1].strip()
+            else:
+                m = _TRANSFERER_LABEL.match(ln)
+                if m:
+                    fields["transferer"] = m.group(1).strip()
             continue
         if lower.startswith("transfer:") and not lower.startswith("transferred"):
             fields["transfer"] = ln.split(":", 1)[1].strip()
@@ -320,22 +489,35 @@ def parse_published_show_txt(path: Path) -> dict[str, Any]:
             fields["source"] = ln.split(":", 1)[1].strip()
             continue
         if lower.startswith("taped by:") or lower.startswith("recorded by:"):
-            # Optional credit; keep in notes if empty.
             credit = ln.split(":", 1)[1].strip()
             if credit and not fields.get("notes"):
                 fields["notes"] = ln.strip()
+
+    # Unlabeled lineage in the pre-setlist body (Merlefest / Jam Shack).
+    for ln in lines[body_start:]:
+        if not ln:
             continue
-        if len(ln) < 8:
+        if _TRACKLIST_START.match(ln):
+            break
+        lower = ln.lower()
+        if any(lower.startswith(p) for p in _LABELED_META):
+            # Already handled in the full-file labeled pass.
             continue
-        if any(
-            tok in lower
-            for tok in (">", "dat", "sbd", "aud", "matrix", "flac")
-        ):
-            # Unlabeled lineage — prefer as source only when still empty.
-            if not fields.get("source"):
-                fields["source"] = ln
-            elif not fields.get("transfer") and "flac" in lower:
-                fields["transfer"] = ln
+        if _looks_like_lineage(ln) or _TRANSFERER_PAREN.search(ln):
+            _apply_lineage_line(fields, ln)
+
+    # If a combined lineage landed only in source, try to split transfer out.
+    src = fields.get("source")
+    if isinstance(src, str) and not fields.get("transfer"):
+        mp = _MASTER_PLAYBACK.match(src)
+        if mp:
+            fields["source"] = mp.group(1).strip().rstrip(">").strip()
+            fields["transfer"] = mp.group(2).strip()
+        else:
+            cap = _CAPTURE_THEN_TRANSFER.match(src)
+            if cap and "flac" in src.lower():
+                fields["source"] = cap.group(1).strip()
+                fields["transfer"] = cap.group(2).strip()
 
     return {k: v for k, v in fields.items() if v not in (None, "")}
 
@@ -393,12 +575,11 @@ def hydrate_titles_from_published_setlist(
     """
     plan = migrate_tracking_plan(plan)
     root = project_root or Path.cwd()
-    cal = calibration_dir
-    if cal is None and plan.get("show_id"):
-        cal = root / "data" / "calibration" / str(plan["show_id"])
-    if cal is None:
-        return plan
-    txt = find_published_show_txt(Path(cal))
+    txt = find_companion_show_txt(
+        str(plan.get("show_id") or ""),
+        project_root=root,
+        calibration_dir=calibration_dir,
+    )
     if txt is None:
         return plan
     titles = parse_published_setlist(txt)
@@ -471,12 +652,11 @@ def reconcile_track_count_to_published_setlist(
 
     plan = migrate_tracking_plan(plan)
     root = project_root or Path.cwd()
-    cal = calibration_dir
-    if cal is None and plan.get("show_id"):
-        cal = root / "data" / "calibration" / str(plan["show_id"])
-    if cal is None:
-        return plan
-    txt = find_published_show_txt(Path(cal))
+    txt = find_companion_show_txt(
+        str(plan.get("show_id") or ""),
+        project_root=root,
+        calibration_dir=calibration_dir,
+    )
     if txt is None:
         return plan
     titles = parse_published_setlist(txt)
@@ -589,13 +769,15 @@ def seed_package_metadata(
     project_root: Path | None = None,
     calibration_dir: Path | None = None,
     use_llm_extract: bool = True,
+    allow_web_research: bool = True,
     llm_extract_fn: Any | None = None,
+    llm_research_fn: Any | None = None,
 ) -> dict[str, Any]:
     """Fill empty package fields from CLI, companions (LLM), catalog, and show_id."""
     from dat_tracker.review_package_extract import (
         _EXTRACT_NOTE,
+        _RESEARCH_NOTE,
         extract_package_fields_from_companions,
-        gather_companion_sources,
     )
 
     plan = migrate_tracking_plan(plan)
@@ -604,23 +786,39 @@ def seed_package_metadata(
     catalog = lookup_catalog_show(str(plan.get("show_id") or ""), project_root=root)
 
     published: dict[str, Any] = {}
-    cal = calibration_dir
-    if cal is None and plan.get("show_id"):
-        cal = root / "data" / "calibration" / str(plan["show_id"])
     ran_llm_extract = False
-    if cal is not None and Path(cal).is_dir():
-        notes_list = [str(n) for n in (plan.get("notes") or [])]
-        already_extracted = _EXTRACT_NOTE in notes_list
-        want_llm = bool(use_llm_extract) and not already_extracted
-        published = extract_package_fields_from_companions(
-            Path(cal),
+    ran_web_research = False
+    show_id = str(plan.get("show_id") or "")
+    companion_dirs: list[Path] = []
+    if calibration_dir is not None and Path(calibration_dir).is_dir():
+        companion_dirs.append(Path(calibration_dir))
+    for directory in resolve_companion_dirs(show_id, project_root=root):
+        if directory not in companion_dirs:
+            companion_dirs.append(directory)
+
+    notes_list = [str(n) for n in (plan.get("notes") or [])]
+    already_extracted = _EXTRACT_NOTE in notes_list
+    want_llm = bool(use_llm_extract) and not already_extracted
+    for directory in companion_dirs:
+        meta: dict[str, Any] = {}
+        extracted = extract_package_fields_from_companions(
+            directory,
             use_llm=want_llm,
+            allow_web_research=bool(allow_web_research) and want_llm,
             project_root=root,
             llm_extract_fn=llm_extract_fn,
+            llm_research_fn=llm_research_fn,
+            result_meta=meta,
         )
-        if want_llm:
-            ctx = gather_companion_sources(Path(cal))
-            ran_llm_extract = bool(ctx["text_files"] or ctx["filenames"])
+        if meta.get("used_llm"):
+            ran_llm_extract = True
+            # Only one Gemini extract (+ optional research) across companion dirs.
+            want_llm = False
+        if meta.get("used_research"):
+            ran_web_research = True
+        for key, value in extracted.items():
+            if key not in published or published.get(key) in (None, ""):
+                published[key] = value
 
     defaults = merge_builtin_fallbacks(load_operator_defaults(project_root=root))
 
@@ -644,33 +842,42 @@ def seed_package_metadata(
                 pkg[key] = cand
                 return
 
-    _set("artist", artist, published.get("artist"), (catalog or {}).get("artist"))
+    cat = catalog or {}
+    _set("artist", artist, published.get("artist"), cat.get("artist"))
     date_from_id = None
-    m = _DATE_IN_ID.search(str(plan.get("show_id") or ""))
+    m = _DATE_IN_ID.search(show_id)
     if m:
         date_from_id = f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
     _set(
         "date",
         date,
         published.get("date"),
-        (catalog or {}).get("date"),
+        cat.get("date"),
         date_from_id,
     )
     _set("tracker", tracker, defaults.get("tracker"))
-    _set("venue", venue, published.get("venue"))
-    _set("city", city, published.get("city"))
-    _set("state", state, published.get("state"))
-    _set("source", source, published.get("source"))
+    _set("venue", venue, published.get("venue"), cat.get("venue"))
+    _set("city", city, published.get("city"), cat.get("city"))
+    _set("state", state, published.get("state"), cat.get("state"))
+    _set("source", source, published.get("source"), cat.get("source"))
     _set("transfer", transfer, published.get("transfer"))
     _set("transferer", published.get("transferer"))
     _set("set_label", published.get("set_label"), defaults.get("set_label"))
-    _set("notes", published.get("notes"))
+    _set("notes", published.get("notes"), cat.get("notes"))
+    if not pkg.get("collection_subjects"):
+        subjects = published.get("collection_subjects")
+        if not subjects and cat.get("collection"):
+            subjects = [cat["collection"]]
+        if subjects:
+            pkg["collection_subjects"] = list(subjects)
 
-    if ran_llm_extract:
+    if ran_llm_extract or ran_web_research:
         notes = [str(n) for n in (plan.get("notes") or [])]
-        if _EXTRACT_NOTE not in notes:
+        if ran_llm_extract and _EXTRACT_NOTE not in notes:
             notes.append(_EXTRACT_NOTE)
-            plan["notes"] = notes
+        if ran_web_research and _RESEARCH_NOTE not in notes:
+            notes.append(_RESEARCH_NOTE)
+        plan["notes"] = notes
 
     plan["package"] = pkg
     validate_tracking_plan(plan)

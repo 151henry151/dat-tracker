@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Prefer Gemini text extraction for companion show ``.txt`` package fields, with optional Google Search research to fill missing venue/city/state when artist and date are known.
+- Add ``scripts/verify_work_package_seed.py`` to batch-check ``data/work`` shows for blank package fields via the LLM seed path.
+- Resolve companion info and catalog rows from ``data/ground_truth`` and ``catalog/shows.json`` (not only calibration / tier-B).
+- Add offline ``tests/test_work_package_coverage.py`` so every work show with a companion seeds non-blank package fields via the heuristic fallback.
 - Restore filled centered waveforms; draw true silence as a single mid-row of ``·`` (not a thick braille band).
 - Draw waveforms as a centered outline with a persistent silence baseline (not a solid filled blob); soften display gamma so peaks stay pointier.
 - Exaggerate waveform display with local normalize, percentile contrast, and gamma so dynamics fill more of the panel.
@@ -31,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Treat heuristic show.txt parsing as an offline fallback only after LLM extract fails (do not soft-fill over a successful LLM result).
+- Harden offline show.txt parsing for blank-line headers, post-setlist Source/Transfer lines, and ``master/playback`` lineage splits.
 - Remap track titles/types after cut insert/delete by time overlap (not track index); keep a song title on only the best-overlapping fragment after a split.
 - Skip continuous-music note titles when hydrating tracks already typed as banter (or other non-song types).
 - Fill blank non-song titles with Jon/etree defaults (`Banter`, `Intro`, `Tuning`, `Encore break`) during review hydrate.

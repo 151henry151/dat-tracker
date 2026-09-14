@@ -160,9 +160,123 @@ def test_seed_package_metadata_fills_from_llm_extract(tmp_path: Path):
         project_root=tmp_path,
         calibration_dir=cal,
         llm_extract_fn=fake_llm,
+        allow_web_research=False,
     )
     assert out["package"]["venue"] == "Jam Shack Stage"
     assert out["package"]["city"] == "Dade City"
     assert out["package"]["state"] == "FL"
     assert out["package"]["transferer"] == "Kevin Preuss"
     validate_tracking_plan(out)
+
+
+def test_llm_success_skips_heuristic_soft_fill(tmp_path: Path):
+    """When the LLM returns a partial result, do not overwrite with regex parses."""
+    from dat_tracker.review_package_extract import extract_package_fields_from_companions
+
+    (tmp_path / "info.txt").write_text(
+        "Jazz Mandolin Project\n"
+        "Winston's\n"
+        "San Diego, CA\n"
+        "2002-11-15\n"
+        "\n"
+        "Source: AUD > DAT\n"
+        "Transfer: DAT > FLAC\n"
+    )
+
+    def fake_llm(context: dict) -> dict:
+        return {"artist": "Jazz Mandolin Project", "date": "2002-11-15"}
+
+    fields = extract_package_fields_from_companions(
+        tmp_path,
+        use_llm=True,
+        llm_extract_fn=fake_llm,
+        allow_web_research=False,
+    )
+    assert fields["artist"] == "Jazz Mandolin Project"
+    assert fields["date"] == "2002-11-15"
+    # Heuristic would have filled these; LLM-first must leave them for research/operator.
+    assert "venue" not in fields
+    assert "source" not in fields
+
+
+def test_web_research_fills_missing_location_fields(tmp_path: Path):
+    from dat_tracker.review_package_extract import extract_package_fields_from_companions
+
+    (tmp_path / "thin.txt").write_text(
+        "Jazz Mandolin Project\n"
+        "November 15, 2002\n"
+        "\n"
+        "Source: AUD > DAT\n"
+        "Transfer: DAT > FLAC\n"
+    )
+    research_calls: list[dict] = []
+
+    def fake_llm(context: dict) -> dict:
+        return {
+            "artist": "Jazz Mandolin Project",
+            "date": "2002-11-15",
+            "source": "AUD > DAT",
+            "transfer": "DAT > FLAC",
+        }
+
+    def fake_research(partial: dict, context: dict) -> dict:
+        research_calls.append({"partial": dict(partial), "context": context})
+        assert partial["artist"] == "Jazz Mandolin Project"
+        assert partial["date"] == "2002-11-15"
+        return {"venue": "Winston's", "city": "San Diego", "state": "CA"}
+
+    fields = extract_package_fields_from_companions(
+        tmp_path,
+        use_llm=True,
+        llm_extract_fn=fake_llm,
+        llm_research_fn=fake_research,
+        allow_web_research=True,
+    )
+    assert research_calls
+    assert fields["venue"] == "Winston's"
+    assert fields["city"] == "San Diego"
+    assert fields["state"] == "CA"
+    assert fields["source"] == "AUD > DAT"
+
+
+def test_web_research_skipped_when_disabled(tmp_path: Path):
+    from dat_tracker.review_package_extract import extract_package_fields_from_companions
+
+    (tmp_path / "thin.txt").write_text("Jazz Mandolin Project\n2002-11-15\n")
+
+    def fake_llm(context: dict) -> dict:
+        return {"artist": "Jazz Mandolin Project", "date": "2002-11-15"}
+
+    def boom_research(partial: dict, context: dict) -> dict:
+        raise AssertionError("research must not run when disabled")
+
+    fields = extract_package_fields_from_companions(
+        tmp_path,
+        use_llm=True,
+        llm_extract_fn=fake_llm,
+        llm_research_fn=boom_research,
+        allow_web_research=False,
+    )
+    assert "venue" not in fields
+
+
+def test_parse_json_object_from_fenced_or_prose():
+    from dat_tracker.review_package_extract import parse_json_object
+
+    assert parse_json_object('{"venue": "Winston\'s"}')["venue"] == "Winston's"
+    assert parse_json_object(
+        'Here you go:\n```json\n{"city": "San Diego", "state": "CA"}\n```\n'
+    ) == {"city": "San Diego", "state": "CA"}
+
+
+def test_research_config_uses_google_search_without_json_mime():
+    from dat_tracker.review_package_extract import build_gemini_generate_config
+
+    cfg = build_gemini_generate_config(with_google_search=True)
+    assert cfg.response_mime_type is None or cfg.response_mime_type == ""
+    assert cfg.tools
+    assert cfg.tools[0].google_search is not None
+
+    cfg_json = build_gemini_generate_config(with_google_search=False)
+    assert cfg_json.response_mime_type == "application/json"
+    assert not cfg_json.tools

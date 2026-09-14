@@ -372,7 +372,8 @@ def test_parse_published_show_txt_merlefest_shape(tmp_path: Path):
         "Wilkesboro,N.C.\n"
         "4-27-2001\n"
         "\n"
-        "FOB Nakamichi cm700's>Sony pcm-m1 DAT master\n"
+        "FOB Nakamichi cm700's>Sony pcm-m1 DAT master/playback: "
+        "Fostex d5>Phillips cd-r880>EAC>Audacity>FLAC\n"
         "\n"
         "disc 1\n"
         "01.Girl from the north country\n"
@@ -384,6 +385,67 @@ def test_parse_published_show_txt_merlefest_shape(tmp_path: Path):
     assert fields.get("state") in {"NC", "N.C.", "North Carolina"}
     assert fields["date"] == "2001-04-27"
     assert fields["source"] and "Nakamichi" in fields["source"]
+    assert "master/playback" not in fields["source"].lower()
+    assert fields["transfer"] and "Fostex" in fields["transfer"]
+    assert "FLAC" in fields["transfer"].upper()
+
+
+def test_parse_published_show_txt_blank_lines_before_venue(tmp_path: Path):
+    """Jam-shack style: blank after artist, city before venue lines."""
+    txt = tmp_path / "jamshack.txt"
+    txt.write_text(
+        "John Cowan & Pat Flynn\n"
+        "\n"
+        "4-16-2004\n"
+        "Dade City, FL\n"
+        "\n"
+        "String Break!\n"
+        "Sertoma Youth Ranch\n"
+        "Jam Shack Stage\n"
+        "\n"
+        "SBD > Sony PCM-M1 > Wavelab 4.0 > CD Wave 1.91 > FLAC (16-bit/44.1kHz)\n"
+        "(Recorded & transferred by Kevin Preuss)\n"
+        "\n"
+        "1.  Intro.\n"
+        "2.  Blackberry Blossom\n"
+    )
+    fields = parse_published_show_txt(txt)
+    assert fields["artist"] == "John Cowan & Pat Flynn"
+    assert fields["date"] == "2004-04-16"
+    assert fields["city"] == "Dade City"
+    assert fields["state"] == "FL"
+    assert "Jam Shack" in (fields.get("venue") or "")
+    assert fields["source"] and "SBD" in fields["source"]
+    assert fields["transfer"] and "Wavelab" in fields["transfer"]
+    assert fields["transferer"] == "Kevin Preuss"
+
+
+def test_parse_published_show_txt_source_after_setlist(tmp_path: Path):
+    txt = tmp_path / "los.txt"
+    txt.write_text(
+        "Leftover Salmon\n"
+        "HORDE Festival\n"
+        "Meadows Music Theater\n"
+        "Hartford, CT\n"
+        "1997-08-06\n"
+        "\n"
+        "01.//River's Rising\n"
+        "02.Carnival Time\n"
+        "\n"
+        "Source: Unknown Mics > DAT > Cass/1\n"
+        "Transfer: Cass/1 > Harmon Kardon TD4200 > FLAC\n"
+        "Transferred by Lobster\n"
+    )
+    fields = parse_published_show_txt(txt)
+    assert fields["venue"] in {"HORDE Festival", "Meadows Music Theater"}
+    assert "HORDE" in (fields.get("venue") or "") or "HORDE" in (
+        fields.get("notes") or ""
+    )
+    assert fields["city"] == "Hartford"
+    assert fields["state"] == "CT"
+    assert "DAT" in fields["source"]
+    assert "Harmon" in fields["transfer"]
+    assert fields["transferer"] == "Lobster"
 
 
 def test_seed_package_from_published_txt(tmp_path: Path):
