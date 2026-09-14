@@ -217,10 +217,18 @@ def upload_package(
     identifier: str,
     metadata: dict[str, Any],
     progress: Callable[[str], None] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
     project_root: Path | None = None,
     skip_existence_check: bool = False,
 ) -> UploadResult:
-    """Upload files in package_dir to Archive.org under identifier."""
+    """Upload files in package_dir to Archive.org under identifier.
+
+    Prefer ``on_progress(message, fraction)``. Legacy ``progress(message)``
+    still receives stage text. Large uploads pulse an elapsed heartbeat so
+    the UI does not look hung while a single file transfers.
+    """
+    from dat_tracker.progress_util import emit_progress, progress_heartbeat
+
     package_dir = Path(package_dir)
     if not package_dir.is_dir():
         return UploadResult(
@@ -259,24 +267,34 @@ def upload_package(
             ok=False, identifier=identifier, error="package directory has no files"
         )
 
-    def _log(msg: str) -> None:
-        if progress:
-            progress(msg)
+    def report(message: str, fraction: float) -> None:
+        emit_progress(on_progress, message, fraction)
+        if progress is not None:
+            progress(message)
 
-    _log(f"Uploading {len(files)} files as {identifier}…")
+    combined = report if (on_progress is not None or progress is not None) else None
+    n = len(files)
+    report(f"Uploading {n} files as {identifier}…", 0.05)
     session = _get_ia_session()
     # Drop identifier from metadata body — passed as item name.
     meta = {k: v for k, v in metadata.items() if k != "identifier"}
     try:
-        session.upload(
-            identifier,
-            files=[str(p) for p in files],
-            metadata=meta,
-            verbose=True,
-        )
+        for i, path in enumerate(files):
+            frac = 0.08 + 0.85 * (i / max(n, 1))
+            label = f"Uploading {path.name} ({i + 1}/{n})"
+            file_meta = meta if i == 0 else {}
+            with progress_heartbeat(
+                combined, label, fraction=frac, interval_sec=2.0
+            ):
+                session.upload(
+                    identifier,
+                    files=[str(path)],
+                    metadata=file_meta,
+                    verbose=True,
+                )
     except Exception as exc:  # noqa: BLE001 — surface to TUI
         return UploadResult(ok=False, identifier=identifier, error=str(exc))
 
     url = f"https://archive.org/details/{identifier}"
-    _log(f"Uploaded: {url}")
+    report(f"Uploaded: {url}", 1.0)
     return UploadResult(ok=True, identifier=identifier, item_url=url)

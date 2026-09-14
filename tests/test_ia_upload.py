@@ -126,6 +126,7 @@ def test_upload_package_calls_session_upload(tmp_path: Path, monkeypatch):
     assert result.ok
     assert result.identifier == "jmp2002-11-15"
     assert "archive.org/details/jmp2002-11-15" in (result.item_url or "")
-    session.upload.assert_called_once()
-    args, kwargs = session.upload.call_args
-    assert args[0] == "jmp2002-11-15"
+    assert session.upload.call_count == 2
+    first_args, first_kwargs = session.upload.call_args_list[0]
+    assert first_args[0] == "jmp2002-11-15"
+    assert first_kwargs.get("metadata")  # first file carries item metadata

@@ -1,0 +1,108 @@
+name: Release binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to upload assets to (e.g. v0.1.0)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: dat-review-linux-x86_64
+          - os: windows-2022
+            artifact: dat-review-windows-x86_64.exe
+          - os: macos-14
+            artifact: dat-review-macos-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync dependencies
+        run: uv sync --extra review --extra asr --extra dev
+
+      - name: Install PortAudio (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libportaudio2 portaudio19-dev ffmpeg
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg portaudio || true
+
+      - name: Install PyInstaller
+        run: uv pip install "pyinstaller>=6.0"
+
+      - name: Build binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run pyinstaller \
+            --noconfirm \
+            --clean \
+            --distpath dist/pyinstaller \
+            --workpath build/pyinstaller \
+            packaging/dat-review.spec
+          mkdir -p dist/release
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp dist/pyinstaller/dat-review.exe "dist/release/${{ matrix.artifact }}"
+          else
+            cp dist/pyinstaller/dat-review "dist/release/${{ matrix.artifact }}"
+            chmod +x "dist/release/${{ matrix.artifact }}"
+          fi
+          ls -lh dist/release/
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/release/${{ matrix.artifact }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'release' || inputs.tag != ''
+    steps:
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          find artifacts -type f -print
+          find artifacts -type f -exec cp {} upload/ \;
+          ls -lh upload/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name || inputs.tag }}
+          files: upload/*
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

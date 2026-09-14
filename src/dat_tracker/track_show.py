@@ -34,6 +34,7 @@ from dat_tracker.refine_cuts import (
     thin_cuts_to_max_tracks,
     thin_listen_centers,
 )
+from dat_tracker.progress_util import map_stage, progress_heartbeat
 from dat_tracker.speech import (
     filter_plausible_speech_segments,
     merge_speech_islands,
@@ -59,12 +60,23 @@ def ensure_whisper_cache(
     audio_path: Path,
     cache_path: Path,
     model_size: str = "base",
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
-    """Load cached Whisper JSON or transcribe once and write the cache."""
+    """Load cached Whisper JSON or transcribe once and write the cache.
+
+    ``on_progress`` receives Whisper-stage fractions (0..1). Callers that map
+    into a larger pipeline should rescale.
+    """
     if cache_path.is_file():
+        if on_progress is not None:
+            on_progress("Loaded cached Whisper transcript", 1.0)
         return json.loads(cache_path.read_text())
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = transcribe_faster_whisper(audio_path, model_size=model_size)
+    payload = transcribe_faster_whisper(
+        audio_path,
+        model_size=model_size,
+        on_progress=on_progress,
+    )
     cache_path.write_text(json.dumps(payload, indent=2) + "\n")
     return payload
 
@@ -176,7 +188,8 @@ def run_track_show(
     """Run sparse Gemini tracking and optionally export an etree-style package.
 
     ``on_progress(message, fraction)`` is called with a human-readable stage
-    and a 0..1 fraction for the current show (best-effort).
+    and a 0..1 fraction for the current show (best-effort). Fractions are
+    monotonic overall so the UI never jumps backward between stages.
     """
     def progress(message: str, fraction: float) -> None:
         if on_progress is not None:
@@ -188,26 +201,46 @@ def run_track_show(
     do_speech_snap = resolve_speech_snap(refine=refine, speech_snap=speech_snap)
 
     cache_path = whisper_cache_path or paths["whisper_cache"]
+
+    def whisper_progress(message: str, stage_frac: float) -> None:
+        # Whisper occupies roughly 5%..30% of the overall show pipeline.
+        progress(message, 0.05 + 0.25 * stage_frac)
+
     progress("Whisper speech transcription…", 0.05)
     payload = ensure_whisper_cache(
         audio_path=source_audio,
         cache_path=cache_path,
         model_size=whisper_model,
+        on_progress=whisper_progress,
     )
     segs = parse_whisper_segments(payload)
-    progress("Measuring duration / proposing cuts…", 0.15)
-    duration = probe_duration_seconds(source_audio)
-    energy_cuts = propose_cuts_from_audio(source_audio, min_separation_sec=60.0)
-    silence_cuts = silence_end_candidates(
-        run_silencedetect(source_audio, noise_db=-40, min_silence_sec=1.2),
-        min_silence_sec=1.2,
-    )
+    with progress_heartbeat(
+        on_progress, "Measuring audio duration", fraction=0.31, interval_sec=2.0
+    ):
+        duration = probe_duration_seconds(source_audio)
+    with progress_heartbeat(
+        on_progress,
+        "Proposing energy-based cut candidates",
+        fraction=0.34,
+        interval_sec=2.0,
+    ):
+        energy_cuts = propose_cuts_from_audio(source_audio, min_separation_sec=60.0)
+    with progress_heartbeat(
+        on_progress,
+        "Detecting silence boundaries (ffmpeg)",
+        fraction=0.40,
+        interval_sec=2.0,
+    ):
+        silence_cuts = silence_end_candidates(
+            run_silencedetect(source_audio, noise_db=-40, min_silence_sec=1.2),
+            min_silence_sec=1.2,
+        )
     # Denser mid-gap probes on longer shows to reduce far-miss under-segmentation
     # (ymsb-class) without globally enabling gap-fill.
     effective_probe_step = (
         min(probe_step_sec, 60.0) if duration >= 1000.0 else probe_step_sec
     )
-    progress("Building speech/energy listen centers…", 0.25)
+    progress("Building speech/energy listen centers…", 0.45)
     anchors, probes = speech_anchor_cuts_with_probes(
         segs,
         duration_sec=duration,
@@ -237,7 +270,7 @@ def run_track_show(
     except ValueError:
         rel_source = str(source_audio)
 
-    progress("Gemini listen (boundaries / titles)…", 0.35)
+    progress("Gemini listen (boundaries / titles)…", 0.48)
     plan = request_tracking_plan_from_clips(
         source_audio=source_audio,
         show_id=show_id,
@@ -249,6 +282,7 @@ def run_track_show(
         half_window_sec=half_window_sec,
         forward_scrub_offset_sec=forward_scrub_offset_sec,
         project_root=root,
+        on_progress=map_stage(on_progress, start=0.48, end=0.68),
     )
     plan = rebuild_tracks_from_cuts(
         plan,
@@ -285,7 +319,7 @@ def run_track_show(
             max_probes_per_gap=2,
         )
         if gap_probes:
-            progress("Gemini gap-fill (insert misses)…", 0.55)
+            progress("Gemini gap-fill (insert misses)…", 0.68)
             plan = gap_fill_tracking_plan_cuts(
                 plan,
                 source_audio=source_audio,
@@ -299,6 +333,7 @@ def run_track_show(
                 half_window_sec=max(45.0, half_window_sec),
                 project_root=root,
                 model=escalate_model,
+                on_progress=map_stage(on_progress, start=0.68, end=0.78),
             )
             plan = rebuild_tracks_from_cuts(
                 plan,
@@ -337,7 +372,7 @@ def run_track_show(
                 max_probes_per_gap=2,
             )
             if gap_probes:
-                progress("Gemini gap-fill (insert misses)…", 0.55)
+                progress("Gemini gap-fill (insert misses)…", 0.68)
                 plan = gap_fill_tracking_plan_cuts(
                     plan,
                     source_audio=source_audio,
@@ -351,6 +386,7 @@ def run_track_show(
                     # still falls inside it.
                     half_window_sec=max(45.0, half_window_sec),
                     project_root=root,
+                    on_progress=map_stage(on_progress, start=0.68, end=0.78),
                 )
                 plan = rebuild_tracks_from_cuts(
                     plan,
@@ -360,7 +396,7 @@ def run_track_show(
                     note="Restored plan endpoints after gap-fill.",
                 )
     if refine:
-        progress("Gemini refine (snap cuts)…", 0.70)
+        progress("Gemini refine (snap cuts)…", 0.78)
         plan = refine_tracking_plan_cuts(
             plan,
             source_audio=source_audio,
@@ -368,6 +404,7 @@ def run_track_show(
             half_window_sec=refine_window,
             project_root=root,
             model=escalate_model if escalate else None,
+            on_progress=map_stage(on_progress, start=0.78, end=0.88),
         )
         plan = rebuild_tracks_from_cuts(
             plan,
@@ -378,7 +415,7 @@ def run_track_show(
             ),
         )
     if do_speech_snap:
-        progress("Speech-onset snap…", 0.80)
+        progress("Speech-onset snap…", 0.88)
         islands = merge_speech_islands(
             filter_plausible_speech_segments(segs, max_seg_sec=20.0)
         )
@@ -441,17 +478,35 @@ def run_track_show(
     # Dense silence ends: walk clearly-early cuts forward onto next-track starts.
     # Softer silence channel than classical proposals: quiet applause gaps often
     # miss -35dB/0.3s but still need confirm (energy/RMS/speech) before a walk.
-    polish_silence_ends = silence_end_candidates(
-        run_silencedetect(source_audio, noise_db=-30, min_silence_sec=0.2),
-        min_silence_sec=0.2,
-    )
+    with progress_heartbeat(
+        on_progress,
+        "Dense silence polish (ffmpeg)",
+        fraction=0.90,
+        interval_sec=2.0,
+    ):
+        polish_silence_ends = silence_end_candidates(
+            run_silencedetect(source_audio, noise_db=-30, min_silence_sec=0.2),
+            min_silence_sec=0.2,
+        )
     islands = merge_speech_islands(
         filter_plausible_speech_segments(segs, max_seg_sec=20.0)
     )
     speech_onsets = [float(i["start"]) for i in islands]
     # Dense energy peaks confirm silence ends that lead into new material.
-    polish_energy = propose_cuts_from_audio(source_audio, min_separation_sec=5.0)
-    risen = silence_ends_with_rms_rise(source_audio, polish_silence_ends)
+    with progress_heartbeat(
+        on_progress,
+        "Dense energy polish",
+        fraction=0.92,
+        interval_sec=2.0,
+    ):
+        polish_energy = propose_cuts_from_audio(source_audio, min_separation_sec=5.0)
+    with progress_heartbeat(
+        on_progress,
+        "Confirming silence ends with RMS rise",
+        fraction=0.93,
+        interval_sec=2.0,
+    ):
+        risen = silence_ends_with_rms_rise(source_audio, polish_silence_ends)
     confirm_times = sorted({*polish_energy, *(s + 0.5 for s in risen)})
     early_polished = polish_early_cuts_to_silence_ends(
         list(plan.get("cuts_sec") or []),

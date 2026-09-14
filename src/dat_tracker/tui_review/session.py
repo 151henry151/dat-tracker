@@ -90,12 +90,21 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
     """In-TUI wait while titles / package metadata are prepared."""
 
     CSS = """
-    #prep {
+    #prep-wrap {
         width: 1fr;
-        height: 1fr;
-        content-align: center middle;
+        height: auto;
         padding: 2 4;
     }
+    #prep-title { text-style: bold; height: 1; }
+    #prep-stage { padding-top: 1; height: auto; }
+    #prep-bar {
+        width: 100%;
+        height: 1;
+        margin: 1 0;
+    }
+    #prep-pct { height: 1; }
+    #prep-elapsed { height: 1; color: $accent; }
+    #prep-note { color: $text-muted; height: auto; padding-top: 1; }
     """
 
     def __init__(
@@ -123,18 +132,50 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
         self.city = city
         self.state = state
         self.source_override = source_override
+        self._started = 0.0
+        self._elapsed_timer = None
 
     def compose(self):  # type: ignore[override]
+        from textual.containers import Vertical
+
         yield Header(show_clock=True)
-        yield Static(
-            f"Preparing review for {self.show.show_id}\n"
-            "(titles, package metadata…)",
-            id="prep",
-        )
+        with Vertical(id="prep-wrap"):
+            yield Static(f"Preparing review for {self.show.show_id}", id="prep-title")
+            yield Static("Starting…", id="prep-stage")
+            yield ProgressBar(total=100, show_eta=False, id="prep-bar")
+            yield Static("0%", id="prep-pct")
+            yield Static("Elapsed: 0s", id="prep-elapsed")
+            yield Static(
+                "Companion Gemini extract and package polish can take a minute.",
+                id="prep-note",
+            )
         yield Footer()
+
+    def on_mount(self) -> None:
+        import time
+
+        self._started = time.monotonic()
+        self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
+        self.prepare_show()
+
+    def _tick_elapsed(self) -> None:
+        import time
+
+        elapsed = max(0, int(time.monotonic() - self._started))
+        mins, secs = divmod(elapsed, 60)
+        self.query_one("#prep-elapsed", Static).update(
+            f"Elapsed: {mins}m {secs:02d}s (still running)"
+        )
+
+    def _on_progress(self, message: str, fraction: float) -> None:
+        pct = int(round(fraction * 100))
+        self.query_one("#prep-stage", Static).update(message)
+        self.query_one("#prep-bar", ProgressBar).update(progress=pct)
+        self.query_one("#prep-pct", Static).update(f"{pct}%")
 
     def _prepare(
         self,
+        on_progress: Any | None = None,
     ) -> tuple[Path, dict[str, Any], Path | None]:
         # Lazy import avoids a review_cli ↔ session cycle at module load.
         from dat_tracker.review_cli import _resolve_source, prepare_plan
@@ -150,6 +191,7 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
             venue=self.venue,
             city=self.city,
             state=self.state,
+            on_progress=on_progress,
         )
         source = _resolve_source(
             plan=plan,
@@ -159,24 +201,35 @@ class PreparingScreen(Screen[tuple[Path, dict[str, Any], Path | None] | None]):
         )
         return plan_path, plan, source
 
-    def on_mount(self) -> None:
-        self.prepare_show()
-
     @work(thread=True, exclusive=True)
     def prepare_show(self) -> None:
+        def on_progress(message: str, fraction: float) -> None:
+            self.app.call_from_thread(self._on_progress, message, fraction)
+
         try:
-            result = self._prepare()
+            result = self._prepare(on_progress=on_progress)
         except Exception as exc:  # noqa: BLE001 — surface in TUI
             self.app.call_from_thread(self._fail, str(exc))
             return
-        self.app.call_from_thread(self.dismiss, result)
+        self.app.call_from_thread(self._done, result)
+
+    def _done(self, result: tuple[Path, dict[str, Any], Path | None]) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
+        self.dismiss(result)
 
     def _fail(self, message: str) -> None:
-        self.query_one("#prep", Static).update(
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
+        self.query_one("#prep-stage", Static).update(
             f"Failed to prepare {self.show.show_id}:\n{message}\n\n"
             "Returning to show list…"
         )
         self.app.call_later(self.dismiss, None)
+
+    def on_unmount(self) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
 
 
 class TrackingScreen(Screen[ReviewableShow | None]):
@@ -185,14 +238,21 @@ class TrackingScreen(Screen[ReviewableShow | None]):
     CSS = """
     #track-wrap {
         width: 1fr;
-        height: 1fr;
+        height: auto;
+        max-height: 100%;
         padding: 2 4;
-        content-align: center middle;
     }
-    #track-title { text-style: bold; }
-    #track-path { color: $text-muted; }
-    #track-stage { padding-top: 1; }
-    #show-bar { width: 80%; padding-top: 1; }
+    #track-title { text-style: bold; height: 1; }
+    #track-path { color: $text-muted; height: auto; }
+    #track-stage { padding-top: 1; height: auto; }
+    #track-note { color: $text-muted; height: auto; padding-top: 1; }
+    #show-bar {
+        width: 100%;
+        height: 1;
+        margin: 1 0;
+    }
+    #show-pct { height: 1; }
+    #track-elapsed { height: 1; color: $accent; }
     """
 
     def __init__(
@@ -208,6 +268,8 @@ class TrackingScreen(Screen[ReviewableShow | None]):
         self.project_root = Path(project_root)
         self.work_dir = work_dir
         self.tracker = tracker
+        self._started = 0.0
+        self._elapsed_timer = None
 
     def compose(self):  # type: ignore[override]
         from textual.containers import Vertical
@@ -220,12 +282,31 @@ class TrackingScreen(Screen[ReviewableShow | None]):
                 id="track-path",
             )
             yield Static("Starting…", id="track-stage")
+            yield Static(
+                "Long stages (Whisper, ffmpeg silence, Gemini API) keep updating "
+                "elapsed time so the UI does not look hung.",
+                id="track-note",
+            )
             yield ProgressBar(total=100, show_eta=False, id="show-bar")
             yield Static("Current show: 0%", id="show-pct")
+            yield Static("Elapsed: 0s", id="track-elapsed")
         yield Footer()
 
     def on_mount(self) -> None:
+        import time
+
+        self._started = time.monotonic()
+        self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         self.run_tracking()
+
+    def _tick_elapsed(self) -> None:
+        import time
+
+        elapsed = max(0, int(time.monotonic() - self._started))
+        mins, secs = divmod(elapsed, 60)
+        self.query_one("#track-elapsed", Static).update(
+            f"Elapsed: {mins}m {secs:02d}s (still running)"
+        )
 
     def _on_progress(self, message: str, fraction: float) -> None:
         pct = int(round(fraction * 100))
@@ -249,14 +330,25 @@ class TrackingScreen(Screen[ReviewableShow | None]):
         except Exception as exc:  # noqa: BLE001
             self.app.call_from_thread(self._fail, str(exc))
             return
-        self.app.call_from_thread(self.dismiss, result)
+        self.app.call_from_thread(self._done, result)
+
+    def _done(self, result: ReviewableShow) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
+        self.dismiss(result)
 
     def _fail(self, message: str) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
         self.query_one("#track-stage", Static).update(
             f"Tracking failed for {self.show.show_id}:\n{message}\n\n"
             "Returning to show list…"
         )
         self.app.call_later(self.dismiss, None)
+
+    def on_unmount(self) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
 
 
 class ConfirmTrackAllScreen(Screen[bool]):
@@ -329,15 +421,20 @@ class TrackAllScreen(Screen[dict[str, Any]]):
     CSS = """
     #track-all-wrap {
         width: 1fr;
-        height: 1fr;
+        height: auto;
         padding: 2 4;
-        content-align: center middle;
     }
-    #batch-summary { text-style: bold; }
-    #overall-bar, #show-bar { width: 80%; padding-top: 1; }
-    #track-path { color: $text-muted; }
-    #track-stage { padding-top: 1; }
-    #track-errors { color: $warning; padding-top: 1; }
+    #batch-summary { text-style: bold; height: auto; }
+    #overall-bar, #show-bar {
+        width: 100%;
+        height: 1;
+        margin: 1 0;
+    }
+    #track-path { color: $text-muted; height: auto; }
+    #track-stage { padding-top: 1; height: auto; }
+    #track-errors { color: $warning; padding-top: 1; height: auto; }
+    #track-note { color: $text-muted; height: auto; }
+    #track-elapsed { height: 1; color: $accent; }
     """
 
     def __init__(
@@ -356,6 +453,8 @@ class TrackAllScreen(Screen[dict[str, Any]]):
         self._index = 0
         self._show_frac = 0.0
         self._failed = 0
+        self._started = 0.0
+        self._elapsed_timer = None
 
     def compose(self):  # type: ignore[override]
         from textual.containers import Vertical
@@ -373,11 +472,29 @@ class TrackAllScreen(Screen[dict[str, Any]]):
             yield Static("Starting…", id="track-stage")
             yield ProgressBar(total=100, show_eta=False, id="show-bar")
             yield Static("Current show: 0%", id="show-pct")
+            yield Static("Elapsed: 0s", id="track-elapsed")
+            yield Static(
+                "Whisper on large DAT FLACs is often many minutes on CPU.",
+                id="track-note",
+            )
             yield Static("", id="track-errors")
         yield Footer()
 
     def on_mount(self) -> None:
+        import time
+
+        self._started = time.monotonic()
+        self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         self.run_batch()
+
+    def _tick_elapsed(self) -> None:
+        import time
+
+        elapsed = max(0, int(time.monotonic() - self._started))
+        mins, secs = divmod(elapsed, 60)
+        self.query_one("#track-elapsed", Static).update(
+            f"Elapsed: {mins}m {secs:02d}s (still running)"
+        )
 
     def _overall_pct(self) -> float:
         total = max(len(self.shows), 1)
@@ -467,7 +584,16 @@ class TrackAllScreen(Screen[dict[str, Any]]):
                     failed=len(failed),
                 )
         summary = {"ok": ok, "failed": failed, "total": total}
-        self.app.call_from_thread(self.dismiss, summary)
+        self.app.call_from_thread(self._finish, summary)
+
+    def _finish(self, summary: dict[str, Any]) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
+        self.dismiss(summary)
+
+    def on_unmount(self) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
 
 
 class ReviewSessionApp(App[int]):

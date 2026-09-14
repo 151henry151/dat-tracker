@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 def parse_whisper_segments(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -237,22 +237,62 @@ def transcribe_faster_whisper(
     language: str = "en",
     device: str = "cpu",
     compute_type: str = "int8",
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
-    """Transcribe with faster-whisper; return whisper-like JSON segments."""
+    """Transcribe with faster-whisper; return whisper-like JSON segments.
+
+    ``on_progress(message, fraction)`` reports model load and segment progress
+    with ``fraction`` in 0..1 for this Whisper stage only.
+    """
     from faster_whisper import WhisperModel
 
+    def progress(message: str, fraction: float) -> None:
+        if on_progress is not None:
+            on_progress(message, max(0.0, min(1.0, float(fraction))))
+
+    progress("Loading Whisper model (first run may download weights)…", 0.02)
     model = WhisperModel(model_size, device=device, compute_type=compute_type)
-    segments_iter, _info = model.transcribe(
+    progress(
+        "Whisper transcribing — long FLACs often take many minutes; still working…",
+        0.05,
+    )
+    segments_iter, info = model.transcribe(
         str(audio_path), language=language, vad_filter=True
     )
-    segments = [
-        {
-            "start": float(seg.start),
-            "end": float(seg.end),
-            "text": (seg.text or "").strip(),
-        }
-        for seg in segments_iter
-    ]
+    duration = float(getattr(info, "duration", 0.0) or 0.0)
+    segments: list[dict[str, Any]] = []
+    last_emit = -1.0
+    for seg in segments_iter:
+        end = float(seg.end)
+        segments.append(
+            {
+                "start": float(seg.start),
+                "end": end,
+                "text": (seg.text or "").strip(),
+            }
+        )
+        if duration > 0:
+            # Map audio coverage into 0.05..0.98 of this Whisper stage.
+            covered = min(1.0, end / duration)
+            stage_frac = 0.05 + 0.93 * covered
+            # Throttle UI updates to ~1% steps.
+            if stage_frac - last_emit >= 0.01 or covered >= 1.0:
+                mins = int(end // 60)
+                secs = int(end % 60)
+                total_m = int(duration // 60)
+                total_s = int(duration % 60)
+                progress(
+                    f"Whisper transcribing… {mins}:{secs:02d} / "
+                    f"{total_m}:{total_s:02d} of audio ({covered * 100:.0f}%)",
+                    stage_frac,
+                )
+                last_emit = stage_frac
+        elif on_progress is not None and len(segments) % 5 == 0:
+            progress(
+                f"Whisper transcribing… {len(segments)} segments so far",
+                min(0.9, 0.05 + 0.01 * len(segments)),
+            )
+    progress("Whisper transcription complete", 1.0)
     return {"segments": segments}
 
 

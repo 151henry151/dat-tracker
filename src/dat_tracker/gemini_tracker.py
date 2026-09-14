@@ -6,7 +6,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dat_tracker.listen_clips import (
     add_gap_probe_centers,
@@ -144,6 +144,7 @@ def request_tracking_plan_from_clips(
     model: str | None = None,
     project_root: Path | None = None,
     max_retries: int = 5,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     """Extract sparse clips, ask Gemini to listen, validate tracking-plan JSON."""
     import time
@@ -151,6 +152,8 @@ def request_tracking_plan_from_clips(
     from google import genai
     from google.genai import types
     from google.genai.errors import ClientError, ServerError
+
+    from dat_tracker.progress_util import emit_progress, progress_heartbeat
 
     root = project_root or Path.cwd()
     key = api_key or resolve_gemini_api_key(project_root=root)
@@ -178,7 +181,13 @@ def request_tracking_plan_from_clips(
 
     work_dir.mkdir(parents=True, exist_ok=True)
     clip_paths: list[tuple[dict[str, Any], Path]] = []
+    n_windows = len(windows)
     for i, win in enumerate(windows):
+        emit_progress(
+            on_progress,
+            f"Extracting listen clip {i + 1}/{n_windows}…",
+            (i / max(n_windows, 1)) * 0.45,
+        )
         dest = work_dir / (
             f"listen_{i:02d}_{win['role']}_{float(win['center_sec']):.1f}s.flac"
         )
@@ -204,6 +213,11 @@ def request_tracking_plan_from_clips(
     )
     few_dir = work_dir / "few_shot"
     for i, ex in enumerate(few_shot):
+        emit_progress(
+            on_progress,
+            f"Preparing few-shot clip {i + 1}/{len(few_shot)}…",
+            0.45 + 0.05 * ((i + 1) / max(len(few_shot), 1)),
+        )
         center = float(ex["cut_sec"])
         start = max(0.0, center - 8.0)
         end = center + 8.0
@@ -242,26 +256,33 @@ def request_tracking_plan_from_clips(
     for attempt in range(max_retries):
         text = ""
         try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=[
-                    types.Content(
-                        role="user",
-                        parts=parts,
-                    )
-                ],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
-                    response_mime_type="application/json",
-                    max_output_tokens=16384,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                        disable=True
+            with progress_heartbeat(
+                on_progress,
+                f"Gemini listen API (attempt {attempt + 1}/{max_retries})",
+                fraction=0.55 + 0.4 * (attempt / max(max_retries, 1)),
+                interval_sec=2.0,
+            ):
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[
+                        types.Content(
+                            role="user",
+                            parts=parts,
+                        )
+                    ],
+                    config=types.GenerateContentConfig(
+                        temperature=0.0,
+                        response_mime_type="application/json",
+                        max_output_tokens=16384,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                            disable=True
+                        ),
                     ),
-                ),
-            )
+                )
             text = _response_text(response)
             if not text.strip():
                 raise ValueError("Empty Gemini response text")
+            emit_progress(on_progress, "Parsing Gemini tracking plan…", 0.95)
             plan = parse_model_json(text)
             plan["show_id"] = show_id
             plan["source_path"] = source_path
@@ -275,6 +296,7 @@ def request_tracking_plan_from_clips(
                 plan["overall_confidence"] = 0.5
             plan = ensure_plan_tracks(plan)
             validate_tracking_plan(plan)
+            emit_progress(on_progress, "Gemini listen complete", 1.0)
             return plan
         except (ServerError, ClientError) as exc:
             last_error = exc
@@ -383,6 +405,7 @@ def refine_tracking_plan_cuts(
     model: str | None = None,
     project_root: Path | None = None,
     max_retries: int = 5,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     """Second listen pass: snap mid cuts to where the next track begins."""
     import time
@@ -390,6 +413,7 @@ def refine_tracking_plan_cuts(
     from google import genai
     from google.genai import types
 
+    from dat_tracker.progress_util import emit_progress, progress_heartbeat
     from dat_tracker.refine_cuts import (
         ensure_endpoint_cuts,
         rebuild_tracks_from_cuts,
@@ -412,7 +436,13 @@ def refine_tracking_plan_cuts(
 
     work_dir.mkdir(parents=True, exist_ok=True)
     clip_paths: list[tuple[dict[str, Any], Path]] = []
+    n_windows = len(windows)
     for i, win in enumerate(windows):
+        emit_progress(
+            on_progress,
+            f"Extracting refine clip {i + 1}/{n_windows}…",
+            (i / max(n_windows, 1)) * 0.5,
+        )
         dest = work_dir / f"refine_{i:02d}_{float(win['center_sec']):.1f}s.flac"
         extract_audio_clip(
             source_audio,
@@ -445,15 +475,22 @@ def refine_tracking_plan_cuts(
     for attempt in range(max_retries):
         text = ""
         try:
-            response = _generate_content_with_retries(
-                client=client,
-                model_name=model_name,
-                parts=parts,
-                max_retries=max_retries,
-            )
+            with progress_heartbeat(
+                on_progress,
+                f"Gemini refine API (attempt {attempt + 1}/{max_retries})",
+                fraction=0.55 + 0.35 * (attempt / max(max_retries, 1)),
+                interval_sec=2.0,
+            ):
+                response = _generate_content_with_retries(
+                    client=client,
+                    model_name=model_name,
+                    parts=parts,
+                    max_retries=max_retries,
+                )
             text = _response_text(response)
             if not text.strip():
                 raise ValueError("Empty Gemini refine response text")
+            emit_progress(on_progress, "Parsing Gemini refine response…", 0.95)
             raw = parse_model_json(text)
             break
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
@@ -524,6 +561,7 @@ def refine_tracking_plan_cuts(
         raw.get("needs_review", plan.get("needs_review", False))
     )
     validate_tracking_plan(refined)
+    emit_progress(on_progress, "Gemini refine complete", 1.0)
     return refined
 
 
@@ -538,6 +576,7 @@ def gap_fill_tracking_plan_cuts(
     model: str | None = None,
     project_root: Path | None = None,
     max_retries: int = 5,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
     """Listen at overlong-gap probes and INSERT missed mid cuts."""
     import time
@@ -545,6 +584,7 @@ def gap_fill_tracking_plan_cuts(
     from google import genai
     from google.genai import types
 
+    from dat_tracker.progress_util import emit_progress, progress_heartbeat
     from dat_tracker.refine_cuts import (
         ensure_endpoint_cuts,
         gap_fill_listen_prompt,
@@ -575,7 +615,13 @@ def gap_fill_tracking_plan_cuts(
 
     work_dir.mkdir(parents=True, exist_ok=True)
     clip_paths: list[tuple[dict[str, Any], Path]] = []
+    n_windows = len(windows)
     for i, win in enumerate(windows):
+        emit_progress(
+            on_progress,
+            f"Extracting gap-fill clip {i + 1}/{n_windows}…",
+            (i / max(n_windows, 1)) * 0.5,
+        )
         dest = work_dir / f"gapfill_{i:02d}_{float(win['center_sec']):.1f}s.flac"
         extract_audio_clip(
             source_audio,
@@ -608,15 +654,22 @@ def gap_fill_tracking_plan_cuts(
     for attempt in range(max_retries):
         text = ""
         try:
-            response = _generate_content_with_retries(
-                client=client,
-                model_name=model_name,
-                parts=parts,
-                max_retries=max_retries,
-            )
+            with progress_heartbeat(
+                on_progress,
+                f"Gemini gap-fill API (attempt {attempt + 1}/{max_retries})",
+                fraction=0.55 + 0.35 * (attempt / max(max_retries, 1)),
+                interval_sec=2.0,
+            ):
+                response = _generate_content_with_retries(
+                    client=client,
+                    model_name=model_name,
+                    parts=parts,
+                    max_retries=max_retries,
+                )
             text = _response_text(response)
             if not text.strip():
                 raise ValueError("Empty Gemini gap-fill response text")
+            emit_progress(on_progress, "Parsing Gemini gap-fill response…", 0.95)
             raw = parse_model_json(text)
             break
         except (json.JSONDecodeError, ValueError, TypeError) as exc:
@@ -671,6 +724,7 @@ def gap_fill_tracking_plan_cuts(
         raw.get("needs_review", plan.get("needs_review", False))
     )
     validate_tracking_plan(filled)
+    emit_progress(on_progress, "Gemini gap-fill complete", 1.0)
     return filled
 
 

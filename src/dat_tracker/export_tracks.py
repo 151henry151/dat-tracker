@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 def etree_track_filename(show_id: str, index: int, title: str | None = None) -> str:
@@ -90,13 +90,22 @@ def export_tracks_from_plan(
     source: Path,
     plan: dict[str, Any],
     out_dir: Path,
+    *,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> list[Path]:
     """Write one FLAC per plan track under out_dir; return paths in order."""
     if not source.is_file():
         raise FileNotFoundError(source)
+    specs = segment_specs_from_plan(plan)
+    n = max(len(specs), 1)
     paths: list[Path] = []
-    for spec in segment_specs_from_plan(plan):
+    for i, spec in enumerate(specs):
         dest = out_dir / str(spec["filename"])
+        if on_progress is not None:
+            on_progress(
+                f"Exporting track {i + 1}/{len(specs)}: {dest.name}…",
+                i / n,
+            )
         export_audio_segment(
             source,
             dest,
@@ -104,4 +113,6 @@ def export_tracks_from_plan(
             end_sec=float(spec["end_sec"]),
         )
         paths.append(dest)
+    if on_progress is not None and specs:
+        on_progress(f"Exported {len(paths)} tracks", 1.0)
     return paths

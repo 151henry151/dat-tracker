@@ -7,14 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-14
+
 ### Added
 
+- Add single-file ``dat-review`` packaging via PyInstaller and a GitHub Actions
+  workflow that builds Linux, Windows, and macOS release binaries.
+- Keep live progress visible across the full ``dat-review`` pipeline: classical
+  duration/energy/silence stages (with elapsed heartbeats), Gemini listen /
+  gap-fill / refine clip extract + API waits, prepare/hydrate, per-track
+  package export/tagging, and per-file Archive.org upload with progress bars.
 - Make `dat-review` dump-directory-first: prompt for continuous FLACs, list shows (including untracked), run tracking when needed, then open review; add `--dump-root` and `--work-plans` escapes.
 - Prompt for tracker defaults inside the same `dat-review` session (no separate app), and return to the show list on review quit instead of exiting to the shell.
 - Prompt for a Gemini API key inside the same `dat-review` session when none is configured (save to project `.env`, or skip with a warning).
 - Replace the dump-path text field with an in-TUI directory browser (`DirectoryTree`, directories only).
 - Add Track all (`a`) on dump show lists: confirm, then batch-track every untracked FLAC and refresh the list.
 - Show live overall and per-show progress (stage text + progress bars) while tracking one show or Track all.
+- Report Whisper transcription progress by audio coverage (and elapsed time) so long CPU runs do not look hung.
 - Continue `dat-review` after Accept-all / Save & approve into packaging (`data/out/<show_id>/` with Vorbis tags, show.txt, ffp) and a confirmed Archive.org upload flow (never silent).
 - Add in-TUI Archive.org login (email/password → local `ia` config) on the upload confirm screen.
 - Add `package_pipeline.build_package` and `ia_upload` helpers with catalog/`ia` preflight; document the operator path in `docs/upload-checklist.md`.
@@ -46,6 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Map tracking-stage progress fractions so they stay monotonic after Whisper
+  (no jump backward when classical / Gemini stages begin).
 - Expand README Gemini API key setup: AI Studio steps, Free Tier vs billing, and that Google Search grounding needs paid tier.
 - Treat heuristic show.txt parsing as an offline fallback only after LLM extract fails (do not soft-fill over a successful LLM result).
 - Harden offline show.txt parsing for blank-line headers, post-setlist Source/Transfer lines, and ``master/playback`` lineage splits.

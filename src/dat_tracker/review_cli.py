@@ -6,7 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dat_tracker.review_discover import (
     discover_reviewable_shows,
@@ -39,20 +39,38 @@ def prepare_plan(
     venue: str | None = None,
     city: str | None = None,
     state: str | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> dict[str, Any]:
+    from dat_tracker.progress_util import emit_progress, progress_heartbeat
+
+    emit_progress(on_progress, "Migrating tracking plan…", 0.05)
     plan = migrate_tracking_plan(raw)
+    emit_progress(on_progress, "Hydrating titles from listen notes…", 0.15)
     plan = hydrate_plan_from_notes(plan)
-    plan = hydrate_plan_from_companions(
-        plan,
-        project_root=project_root,
-        artist=artist,
-        date=date,
-        tracker=tracker,
-        venue=venue,
-        city=city,
-        state=state,
-    )
-    plan = polish_package_metadata(plan, project_root=project_root, use_llm=True)
+    with progress_heartbeat(
+        on_progress,
+        "Gemini companion extract / package seed",
+        fraction=0.45,
+        interval_sec=2.0,
+    ):
+        plan = hydrate_plan_from_companions(
+            plan,
+            project_root=project_root,
+            artist=artist,
+            date=date,
+            tracker=tracker,
+            venue=venue,
+            city=city,
+            state=state,
+        )
+    with progress_heartbeat(
+        on_progress,
+        "Polishing package metadata",
+        fraction=0.85,
+        interval_sec=2.0,
+    ):
+        plan = polish_package_metadata(plan, project_root=project_root, use_llm=True)
+    emit_progress(on_progress, "Prepare complete", 1.0)
     return plan
 
 

@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 from dat_tracker.export_tracks import export_tracks_from_plan
 from dat_tracker.package import package_show_from_plan
+from dat_tracker.progress_util import emit_progress, map_stage
 from dat_tracker.review_plan import (
     assert_review_approved_for_package,
     package_fields_from_plan,
@@ -78,8 +79,13 @@ def build_package(
     project_root: Path | None = None,
     force_unreviewed: bool = False,
     progress: Callable[[str], None] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> PackageResult:
-    """Export tagged tracks + show.txt + ffp into data/out and work mirror."""
+    """Export tagged tracks + show.txt + ffp into data/out and work mirror.
+
+    Prefer ``on_progress(message, fraction)``. Legacy ``progress(message)`` is
+    still accepted and receives stage text only.
+    """
     assert_review_approved_for_package(plan, force_unreviewed=force_unreviewed)
     root = Path(project_root) if project_root is not None else Path.cwd()
     show_id = str(plan["show_id"])
@@ -92,17 +98,25 @@ def build_package(
     out_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    def _log(msg: str) -> None:
-        if progress:
-            progress(msg)
+    def report(message: str, fraction: float) -> None:
+        emit_progress(on_progress, message, fraction)
+        if progress is not None:
+            progress(message)
 
-    _log(f"Exporting tracks to {out_dir}…")
-    track_paths = export_tracks_from_plan(source, plan, out_dir)
+    combined = report if (on_progress is not None or progress is not None) else None
+    report(f"Exporting tracks to {out_dir}…", 0.02)
+    track_paths = export_tracks_from_plan(
+        source,
+        plan,
+        out_dir,
+        on_progress=map_stage(combined, start=0.02, end=0.70),
+    )
 
     tracks_by_index = {
         int(t["index"]): t for t in (plan.get("tracks") or [])
     }
-    for path in track_paths:
+    n_tag = max(len(track_paths), 1)
+    for i, path in enumerate(track_paths):
         # Filename …_tNN.flac
         stem = path.stem
         try:
@@ -114,11 +128,11 @@ def build_package(
             "title": None,
             "segue_into_next": False,
         }
-        _log(f"Tagging {path.name}…")
+        report(f"Tagging {path.name}…", 0.70 + 0.15 * (i / n_tag))
         apply_vorbis_tags(path, plan=plan, track=track)
 
     pkg = package_fields_from_plan(plan)
-    _log("Writing show.txt and fingerprint.ffp.txt…")
+    report("Writing show.txt and fingerprint.ffp.txt…", 0.88)
     written = package_show_from_plan(
         plan,
         track_paths=track_paths,
@@ -136,11 +150,12 @@ def build_package(
         force_unreviewed=force_unreviewed,
     )
 
-    _log(f"Mirroring package to {work_dir}…")
+    report(f"Mirroring package to {work_dir}…", 0.95)
     for path in list(track_paths) + [written["txt"], written["ffp"]]:
         dest = work_dir / path.name
         shutil.copy2(path, dest)
 
+    report("Package build complete", 1.0)
     return PackageResult(
         show_id=show_id,
         out_dir=out_dir,

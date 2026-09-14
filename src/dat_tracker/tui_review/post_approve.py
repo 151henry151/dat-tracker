@@ -105,6 +105,10 @@ class PackagingScreen(Screen[PackageResult | None]):
     ]
 
     CSS = """
+    #pack-stage { height: auto; padding: 0 2; }
+    #pack-bar { width: 100%; height: 1; margin: 0 2; }
+    #pack-pct { height: 1; padding: 0 2; }
+    #pack-elapsed { height: 1; padding: 0 2; color: $accent; }
     #pack-log { height: 1fr; }
     #pack-actions { height: 3; }
     """
@@ -124,13 +128,21 @@ class PackagingScreen(Screen[PackageResult | None]):
         self.project_root = Path(project_root)
         self._result: PackageResult | None = None
         self._error: str | None = None
+        self._started = 0.0
+        self._elapsed_timer = None
 
     def compose(self) -> ComposeResult:
+        from textual.widgets import ProgressBar
+
         yield Header(show_clock=True)
         yield Static(
             f"Packaging {self.plan.get('show_id')}…",
             id="pack-title",
         )
+        yield Static("Starting…", id="pack-stage")
+        yield ProgressBar(total=100, show_eta=False, id="pack-bar")
+        yield Static("0%", id="pack-pct")
+        yield Static("Elapsed: 0s", id="pack-elapsed")
         yield RichLog(id="pack-log", markup=True)
         with Vertical(id="pack-actions"):
             yield Button("Retry", id="pack-retry", disabled=True)
@@ -139,10 +151,32 @@ class PackagingScreen(Screen[PackageResult | None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        import time
+
+        self._started = time.monotonic()
+        self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         self._run_package()
+
+    def _tick_elapsed(self) -> None:
+        import time
+
+        elapsed = max(0, int(time.monotonic() - self._started))
+        mins, secs = divmod(elapsed, 60)
+        self.query_one("#pack-elapsed", Static).update(
+            f"Elapsed: {mins}m {secs:02d}s (still running)"
+        )
 
     def _log(self, line: str) -> None:
         self.query_one("#pack-log", RichLog).write(line)
+
+    def _on_progress(self, message: str, fraction: float) -> None:
+        from textual.widgets import ProgressBar
+
+        pct = int(round(fraction * 100))
+        self.query_one("#pack-stage", Static).update(message)
+        self.query_one("#pack-bar", ProgressBar).update(progress=pct)
+        self.query_one("#pack-pct", Static).update(f"{pct}%")
+        self._log(message)
 
     @work(thread=True)
     def _run_package(self) -> None:
@@ -154,14 +188,14 @@ class PackagingScreen(Screen[PackageResult | None]):
                     "(set plan source_path or open review with audio)."
                 )
 
-            def progress(msg: str) -> None:
-                self.app.call_from_thread(self._log, msg)
+            def on_progress(msg: str, fraction: float) -> None:
+                self.app.call_from_thread(self._on_progress, msg, fraction)
 
             result = build_package(
                 self.plan,
                 source_audio=self.source_audio,
                 project_root=self.project_root,
-                progress=progress,
+                on_progress=on_progress,
             )
             self._result = result
             self.app.call_from_thread(self._on_success, result)
@@ -174,16 +208,24 @@ class PackagingScreen(Screen[PackageResult | None]):
         self.query_one("#pack-back", Button).disabled = busy
 
     def _on_success(self, result: PackageResult) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
         self._log(f"Done: {result.track_count} tracks → {result.out_dir}")
         self.dismiss(result)
 
     def _on_failure(self, message: str) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
         self._log(f"[red]Failed:[/red] {message}")
         self._set_busy(False)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
+        import time
+
         if event.button.id == "pack-retry":
             self.query_one("#pack-log", RichLog).clear()
+            self._started = time.monotonic()
+            self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
             self._run_package()
         elif event.button.id == "pack-back":
             self.dismiss(None)
@@ -192,6 +234,10 @@ class PackagingScreen(Screen[PackageResult | None]):
 
     def action_quit(self) -> None:
         self.app.exit(1)
+
+    def on_unmount(self) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
 
 
 class UploadConfirmScreen(Screen[str | None]):
@@ -334,6 +380,10 @@ class UploadingScreen(Screen[bool]):
     BINDINGS = [Binding("q", "quit", "Quit", show=True)]
 
     CSS = """
+    #up-stage { height: auto; padding: 0 2; }
+    #up-bar { width: 100%; height: 1; margin: 0 2; }
+    #up-pct { height: 1; padding: 0 2; }
+    #up-elapsed { height: 1; padding: 0 2; color: $accent; }
     #up-log { height: 1fr; }
     """
 
@@ -352,24 +402,54 @@ class UploadingScreen(Screen[bool]):
         self.collection = collection
         self.item_url: str | None = None
         self.error: str | None = None
+        self._started = 0.0
+        self._elapsed_timer = None
 
     def compose(self) -> ComposeResult:
+        from textual.widgets import ProgressBar
+
         yield Header(show_clock=True)
         yield Static(f"Uploading {self.package.show_id}…", id="up-title")
+        yield Static("Starting…", id="up-stage")
+        yield ProgressBar(total=100, show_eta=False, id="up-bar")
+        yield Static("0%", id="up-pct")
+        yield Static("Elapsed: 0s", id="up-elapsed")
         yield RichLog(id="up-log", markup=True)
         yield Button("Close", id="up-close", disabled=True)
         yield Footer()
 
     def on_mount(self) -> None:
+        import time
+
+        self._started = time.monotonic()
+        self._elapsed_timer = self.set_interval(1.0, self._tick_elapsed)
         self._run_upload()
+
+    def _tick_elapsed(self) -> None:
+        import time
+
+        elapsed = max(0, int(time.monotonic() - self._started))
+        mins, secs = divmod(elapsed, 60)
+        self.query_one("#up-elapsed", Static).update(
+            f"Elapsed: {mins}m {secs:02d}s (still running)"
+        )
 
     def _log(self, line: str) -> None:
         self.query_one("#up-log", RichLog).write(line)
 
+    def _on_progress(self, message: str, fraction: float) -> None:
+        from textual.widgets import ProgressBar
+
+        pct = int(round(fraction * 100))
+        self.query_one("#up-stage", Static).update(message)
+        self.query_one("#up-bar", ProgressBar).update(progress=pct)
+        self.query_one("#up-pct", Static).update(f"{pct}%")
+        self._log(message)
+
     @work(thread=True)
     def _run_upload(self) -> None:
-        def progress(msg: str) -> None:
-            self.app.call_from_thread(self._log, msg)
+        def on_progress(msg: str, fraction: float) -> None:
+            self.app.call_from_thread(self._on_progress, msg, fraction)
 
         meta = build_ia_metadata(
             self.plan,
@@ -380,7 +460,7 @@ class UploadingScreen(Screen[bool]):
             self.package.out_dir,
             identifier=self.package.show_id,
             metadata=meta,
-            progress=progress,
+            on_progress=on_progress,
             project_root=self.project_root,
         )
         if result.ok:
@@ -393,12 +473,18 @@ class UploadingScreen(Screen[bool]):
             )
 
     def _on_done(self, ok: bool, detail: str) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
         if ok:
             self._log(f"[green]Success:[/green] {detail}")
             self.dismiss(True)
         else:
             self._log(f"[red]Failed:[/red] {detail}")
             self.query_one("#up-close", Button).disabled = False
+
+    def on_unmount(self) -> None:
+        if self._elapsed_timer is not None:
+            self._elapsed_timer.stop()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "up-close":
