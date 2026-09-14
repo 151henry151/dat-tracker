@@ -182,6 +182,8 @@ Do not block Live Bluegrass shipping on full fine-tunes, but design data collect
 
 ## Phase 3 — Package and upload standards
 
+**Deferred implementation plan (in-TUI package → confirm → Archive.org upload):** see [`docs/plans/in-tui-package-and-archive-upload.md`](docs/plans/in-tui-package-and-archive-upload.md). Resume when ready; not blocking current review-TUI polish.
+
 For each finished show:
 
 - Identifier / dir: etree style (`del2005-05-29`, `hotrize1996-06-09`, source suffix if needed e.g. `.sbd`).

@@ -48,6 +48,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Allow clicking empty waveform space to place the cyan playhead (Space plays/pauses from there to end of show; ``l`` still loops the selected cut); long play-to-end follows the cursor in the detail window.
 - Place the cyan playhead at the cut loop-window start when clicking a yellow cut marker.
 - Select the matching cut and move the cyan playhead to a track's start when highlighting/clicking a row in the track list.
+- Extract review package metadata (venue, city, state, transferer, …) from companion info ``.txt`` files and nearby filenames via a text Gemini pass, with the heuristic Jon-style parser as offline fallback.
+- Split companion lineages into Jon-style ``source`` (capture) and ``transfer`` (digitize/encode) fields, including labeled ``Source:`` / ``Transfer:`` lines in the heuristic parser.
 - Keep ``dat-review`` in one Textual session from the show picker through prepare into the review TUI (no terminal bounce between steps).
 - Draw silence baseline ``·`` in the same bright white as braille waveform dots (not dim cyan).
 - Smooth review waveforms with max-pooled columns and half-block tops; use compact package Inputs (default height-3 Inputs were clipped to 1 row — values invisible and not editable); sync package values on mount and show two fields per row.

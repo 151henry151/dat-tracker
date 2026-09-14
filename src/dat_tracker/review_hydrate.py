@@ -309,15 +309,33 @@ def parse_published_show_txt(path: Path) -> dict[str, Any]:
             continue
         if _TRACKLIST_START.match(ln):
             break
+        lower = ln.lower()
+        if lower.startswith("transferred by:"):
+            fields["transferer"] = ln.split(":", 1)[1].strip()
+            continue
+        if lower.startswith("transfer:") and not lower.startswith("transferred"):
+            fields["transfer"] = ln.split(":", 1)[1].strip()
+            continue
+        if lower.startswith("source:"):
+            fields["source"] = ln.split(":", 1)[1].strip()
+            continue
+        if lower.startswith("taped by:") or lower.startswith("recorded by:"):
+            # Optional credit; keep in notes if empty.
+            credit = ln.split(":", 1)[1].strip()
+            if credit and not fields.get("notes"):
+                fields["notes"] = ln.strip()
+            continue
         if len(ln) < 8:
             continue
-        lower = ln.lower()
         if any(
             tok in lower
-            for tok in (">", "dat", "sbd", "aud", "matrix", "flac", "transfer")
+            for tok in (">", "dat", "sbd", "aud", "matrix", "flac")
         ):
-            fields["source"] = ln
-            break
+            # Unlabeled lineage — prefer as source only when still empty.
+            if not fields.get("source"):
+                fields["source"] = ln
+            elif not fields.get("transfer") and "flac" in lower:
+                fields["transfer"] = ln
 
     return {k: v for k, v in fields.items() if v not in (None, "")}
 
@@ -570,8 +588,16 @@ def seed_package_metadata(
     transfer: str | None = None,
     project_root: Path | None = None,
     calibration_dir: Path | None = None,
+    use_llm_extract: bool = True,
+    llm_extract_fn: Any | None = None,
 ) -> dict[str, Any]:
-    """Fill empty package fields from CLI, published txt, catalog, and show_id."""
+    """Fill empty package fields from CLI, companions (LLM), catalog, and show_id."""
+    from dat_tracker.review_package_extract import (
+        _EXTRACT_NOTE,
+        extract_package_fields_from_companions,
+        gather_companion_sources,
+    )
+
     plan = migrate_tracking_plan(plan)
     pkg = dict(plan.get("package") or {})
     root = project_root or Path.cwd()
@@ -581,10 +607,20 @@ def seed_package_metadata(
     cal = calibration_dir
     if cal is None and plan.get("show_id"):
         cal = root / "data" / "calibration" / str(plan["show_id"])
-    if cal is not None:
-        txt = find_published_show_txt(Path(cal))
-        if txt is not None:
-            published = parse_published_show_txt(txt)
+    ran_llm_extract = False
+    if cal is not None and Path(cal).is_dir():
+        notes_list = [str(n) for n in (plan.get("notes") or [])]
+        already_extracted = _EXTRACT_NOTE in notes_list
+        want_llm = bool(use_llm_extract) and not already_extracted
+        published = extract_package_fields_from_companions(
+            Path(cal),
+            use_llm=want_llm,
+            project_root=root,
+            llm_extract_fn=llm_extract_fn,
+        )
+        if want_llm:
+            ctx = gather_companion_sources(Path(cal))
+            ran_llm_extract = bool(ctx["text_files"] or ctx["filenames"])
 
     defaults = merge_builtin_fallbacks(load_operator_defaults(project_root=root))
 
@@ -629,6 +665,13 @@ def seed_package_metadata(
     _set("transferer", published.get("transferer"))
     _set("set_label", published.get("set_label"), defaults.get("set_label"))
     _set("notes", published.get("notes"))
+
+    if ran_llm_extract:
+        notes = [str(n) for n in (plan.get("notes") or [])]
+        if _EXTRACT_NOTE not in notes:
+            notes.append(_EXTRACT_NOTE)
+            plan["notes"] = notes
+
     plan["package"] = pkg
     validate_tracking_plan(plan)
     return plan
